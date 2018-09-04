@@ -76,7 +76,7 @@
 
 **往返时间 RTT**
 
-**利用率**：![](https://latex.codecogs.com/gif.latex?delay=\dfrac{D_0}{(1-U)})
+**利用率**：![](https://latex.codecogs.com/gif.latex?D=\frac{D_0}{(1-U)})
 
 D0 为网络空闲时的时延，D 为当前时延，U 为网络利用率
 
