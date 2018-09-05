@@ -3,7 +3,6 @@
 - [1. 计算机网络的体系结构](https://github.com/vczn/CS_Notes/blob/master/notes/network/network.md#1-%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C%E7%9A%84%E4%BD%93%E7%B3%BB%E7%BB%93%E6%9E%84)
 - [2. 计算机网络的性能](https://github.com/vczn/CS_Notes/blob/master/notes/network/network.md#2-%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C%E7%9A%84%E6%80%A7%E8%83%BD)
 - [3. 设计应用](https://github.com/vczn/CS_Notes/blob/master/notes/network/network.md#3-%E8%AE%BE%E8%AE%A1%E5%BA%94%E7%94%A8)
-- [4. 标准化](https://github.com/vczn/CS_Notes/blob/master/notes/network/network.md#4-%E6%A0%87%E5%87%86%E5%8C%96)
 
 [二、物理层](https://github.com/vczn/CS_Notes/blob/master/notes/network/network.md#%E4%BA%8C%E7%89%A9%E7%90%86%E5%B1%82)
 
@@ -106,13 +105,28 @@ D0 为网络空闲时的时延，D 为当前时延，U 为网络利用率
 
 
 
-## 4. 标准化
-
-> RFC
-
-
-
 # 二、物理层
+
+物理层确保原始的数据可在各种物理媒体上传输。
+
+信道：表示某一方向传送信息的媒体。
+
+调制解调：
+
+- 基带调制。也称编码。比如曼彻斯特编码。
+- 带通调制。使用载波进行调制，转换为模拟信号，更换地在模拟信道进行传输。比如调幅、调频、调相。
+
+码元：常常用时间间隔相同的符号来表示一个二进制数字，这样的时间间隔内的信号称为码元。一个码元携带的信息量是不固定的，而是由调制方法和编码方式决定。
+
+信噪比(dB)：![](https://latex.codecogs.com/gif.latex?10 log_{10}(S/N))
+
+香农公式：信道的极限信息传输速率 ![](https://latex.codecogs.com/gif.latex?C = Wlog_2(1+S/N)) bit/s
+
+信道的带宽或信道中的信噪比越大，信息的极限传输速率就越高，还可以让一个码元携带更多比特的信息量。
+
+传输介质：双绞线、同轴电缆、光缆、微波、通信卫星
+
+信道复用机制：频分复用、时分复用、波分复用、码分复用(正交)。
 
 
 
