@@ -1,16 +1,12 @@
 <!-- TOC -->
 
-\- [一、Architecture](#一architecture)    
+- [一、Architecture](#一architecture)    
+    - [1. register](#1-register)    
+    - [2. call conventions](#2-call-conventions)
 
-​    \- [1. register](#1-register)    
-
-​    \- [2. call conventions](#2-call-conventions)
-
-\- [二、Instruction](#二instruction)
-
-​    \- [1. addressing mode](#1-addressing-mode)    
-
-​    \- [2. instruction set](#2-instruction-set)
+- [二、Instruction](#二instruction)
+    - [1. addressing mode](#1-addressing-mode)    
+    - [2. instruction set](#2-instruction-set)
 
 <!-- /TOC -->
 
