@@ -8,6 +8,8 @@ Computer Science Notes
 
 ## 1. 体系结构
 
+[x86_64 AT&T 汇编](https://github.com/vczn/CS_Notes/blob/master/notes/architecture/x86_64_assembly.md)
+
 
 
 ## 2. 操作系统
@@ -15,6 +17,8 @@ Computer Science Notes
 
 
 ## 3. 计算机网络
+
+[网络基础](https://github.com/vczn/CS_Notes/blob/master/notes/network/network.md)
 
 
 
