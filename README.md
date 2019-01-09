@@ -14,6 +14,8 @@ Computer Science Notes
 
 ## 2. 操作系统
 
+[Linux 基础](https://github.com/vczn/CS_Notes/blob/master/notes/os/linux_begin.md)
+
 
 
 ## 3. 计算机网络
