@@ -12,9 +12,10 @@
     - [9. 管理文件系统](#9-管理文件系统)   
     - [10. 安装程序](#10-安装程序) 
     - [11. 编辑器](#11-编辑器) 
-    - [12. 网络相关](#12-网络相关)    
-    - [13. GDB](#13-gdb)    
-    - [14. 其他](#14-其他)
+    - [12. 编译相关](#12-编译相关)
+    - [13. 网络相关](#13-网络相关)    
+    - [14. GDB](#14-gdb)    
+    - [15. 其他](#15-其他)
 - [三、shell 脚本](#三shell-脚本)    
     - [1. 基本脚本](#1-基本脚本)   
     - [2. 结构化命令](#2-结构化命令)  
@@ -823,7 +824,33 @@ emacs 和图形编辑器(gedit, atom, sublime, vscode)就不再介绍
 
 
 
-## 12. 网络相关
+## 12. 编译相关
+
+C/C++ 编译，这里主要写 C++ 简单的编译命令
+
+```sh
+g++/clang++
+-c            # 生成 object 文件
+-C            # 预处理，但删除注释信息
+-Dmacro       # define macro
+-Dmacro=defn 
+-E            # 预处理(cpp)
+-g            # debug 信息，在 gdb, objdump 时用到这些信息
+-Idir         # 头文件目录
+-l`lib`       # link 名为 lib 的 lib 文件，一般为 `*.a`
+-Ldir         # 库文件目录
+-o outfile    # 输出文件名
+-O?           # ? 为优化等级
+-shared       # 生成共享 .so 文件，常和 -fPIC 一起使用 
+-static       # 默认优先使用动态链接库，强制使用静态链接库
+-S            # 生成汇编代码
+-Wall         # 所有 warning
+-Werror       # warning 视为 error
+```
+
+
+
+## 13. 网络相关
 
 ```shell
 # 网络查看及配置
@@ -885,7 +912,7 @@ tcpdump options filter       # 抓包
 
 
 
-## 13. GDB
+## 14. GDB
 
 ```gd
 help
@@ -926,13 +953,19 @@ info(i) registers(r)
 
 
 
-## 14. 其他
+## 15. 其他
 
 ```shell
 who                          # 查看登录用户
 mesg [y/n]                   # 查看/启用/禁用 向其他登录用户发生消息
 write username ttyName       # 双方启用，发送消息
 ```
+
+```sh
+uname -r         # 查看内核版本
+```
+
+
 
 
 
