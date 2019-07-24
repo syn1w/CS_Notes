@@ -16,7 +16,7 @@ Computer Science Notes
 
 [Linux 基础](https://github.com/vczn/CS_Notes/blob/master/notes/os/linux_begin.md)
 
-
+[Linux 内核](https://github.com/vczn/CS_Notes/blob/master/notes/os/linux_kernel.md)
 
 ## 3. 计算机网络
 
