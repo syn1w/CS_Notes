@@ -36,8 +36,14 @@ Computer Science Notes
 
 
 
-## 7. 工具
+## 7. 编译原理
+
+[编译器设计](https://github.com/vczn/CS_Notes/blob/master/notes/compiler/compiler.md)
 
 
 
-## 8. 其他
+## 8. 工具
+
+
+
+## 9. 其他
