@@ -82,6 +82,9 @@ XCR0        # 特殊的扩展控制寄存器，管理(启用/禁用)各种特性
 
 ```assembly
 DR0 ~ DR3   # 4 个断点的线性地址，如果启用分页，被转换为物理地址
+DR6         # 允许调试器确定发生了哪些调试条件
+DR7         # status debug register
+DR4, DR5    # unused
 ```
 
 
