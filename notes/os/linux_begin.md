@@ -27,10 +27,17 @@
     - [2. 图形化中的脚本](#2-图形化中的脚本)    
     - [3. sed 编辑器](#3-sed-编辑器)   
     - [4. gawk 编辑器](#4-gawk-编辑器)  
-    - [5. 正则表达式](#5-正则表达式)-
+    - [5. 正则表达式](#5-正则表达式)
 - [五、有用的实例](#五有用的实例)    
     - [1. 归档](#1-归档)    
     - [2. 代码行数](#2-代码行数)
+    - [3. 递归删除文件](#3-递归删除文件)
+- [六、其他实用命令](#其他实用命令)  
+    - [1. zsh](#1-zsh)
+    - [2. ag](#2-ag)
+    - [3. ccache](#3-ccache)
+    - [4. tldr](#4-tldr)
+    - [5. axel](#5-axel)
 
 <!-- /TOC -->
 
@@ -1908,6 +1915,77 @@ cloc file
 ```
 
 
+
+## 3. 递归删除文件
+
+```sh
+find . -name "*.txt" | xargs rm -rf
+# 在当前目录下递归删除所以的 *.txt 文件
+```
+
+
+
+
+
+# 六、其他实用命令
+
+## 1. zsh
+
+比 bash 更强大的 shell，可以使用 `oh my zsh` 进行简单地配置
+
+
+
+## 2. ag
+
+类似于 `grep` 和 `ack`，可以更快速更简单地搜索文件内容
+
+```sh
+ag [FILE-TYPE] [OPTIONS] PATTERN [PATH]
+-g         # 打印模式匹配到地文件名
+-c         # count，仅打印在每个文件中匹配数量
+-f         # following symlink
+-F|-Q      # 不解析 PATTERN作为正则表达式，只作为字符串字面量
+```
+
+
+
+## 3. ccache
+
+编译器缓存，使用缓存来加快之后的编译速度。
+
+```sh
+ccache gcc foo.cpp
+```
+
+使用 `make` 之类可以
+
+```sh
+export CC="ccache gcc"
+```
+
+
+
+## 4. tldr
+
+man 命令输出太长懒得看，可以使用 `tldr`
+
+```sh
+sudo npm install -g tldr
+
+tldr xxx
+```
+
+
+
+## 5. axel
+
+多线程下载工具，替代 `curl`、`wget`
+
+```sh
+axel url
+axel url -o filename
+axel -n numConnections url
+```
 
 
 
