@@ -1083,9 +1083,9 @@ fi
 ```shell
 if test condition or [ condition ]  # [ xxx ] xxx 前后的空格不能省略
 # 关于 condition
-## int:    n1     op  n2, op 可以为 eq, ge, gt, le, lt, ne
+## int: n1 op n2, op 可以为 eq, ge, gt, le, lt, ne
 
-## string: [str1] op  n2, op 可以为 ==, !=, <, >, -n(一元，长度非0), -z(一元，长度为0)
+## string: [str1] op str2, op 可以为 ==, !=, <, >, -n(一元，长度非0), -z(一元，长度为0)
 ##     !!! 需要注意 > 和 < 在使用时需要转义，会被认为成重定向符号，比较根据 ASCII 码顺序
 
 ## file: 
