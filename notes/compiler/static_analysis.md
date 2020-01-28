@@ -60,7 +60,15 @@ void printMsg(FILE* file, char* msg) {
 
 
 
-## 2. Security Features != Secure Features
+## 2. Quality Fallacy
+
+渗透测试(*penetration test*)是有经验与知识，为雇主的网络设备、主机、模拟黑客的手法进行**攻击测试**，为了发掘系统漏洞，并提出改善方法，通常出于善意。
+
+黑盒测试(*black-box test*)不会向攻击者提供有关系统构建方式的信息。也许类似现实场景，但是既不充分又没有效率。测试在系统构建完成才能开始。
+
+模糊测试(*fuzzing*)，提供给程序随机生成的输入。
 
 
+
+## 3. Classifying   Vulnerabilities
 
