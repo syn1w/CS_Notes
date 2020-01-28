@@ -70,5 +70,27 @@ void printMsg(FILE* file, char* msg) {
 
 
 
-## 3. Classifying   Vulnerabilities
+## 3. Classifying Vulnerabilities
+
+将缺陷分为两组：通用(*generic defeat*)的和特定上下文的(*context-specific defects*)。
+
+通用缺陷能够发生在几乎任何被某种给定的编程语言的程序中。buffer overflow 是一个 C/C++ 程序极好的例子。buffer overflow 代表的安全问题几乎能发生在任何的上下文中。
+
+特定上下文缺陷需要关于程序语义特定的知识。
+
+Common Weakness Enumeration (CWE)是一个对软件脆弱性和易受攻击性的一个分类系统。
+
+开放式 Web 应用程序安全项目(OWASP)使用基于社区的方法来定义在安全原则、威胁、攻击、漏洞和对策之间的术语和关系。
+
+7种缺陷分类：
+
+- Input Validation and Representation: encodings, XSS, SQL injection, etc.
+- API Abuse
+- Security Features: authentication, access control, confidentiality, cryptography, and privilege management.
+- Time and State: unexpected interactions between threads, processes, time, and data
+- Error Handling
+- Code Quality
+- 封装(Encapsulation)
+
+还有一个是源代码外部因素，比如环境(Environment)。
 
