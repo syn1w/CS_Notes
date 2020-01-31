@@ -137,3 +137,45 @@ Common Weakness Enumeration (CWE)是一个对软件脆弱性和易受攻击性�
 
 
 
+# 三、Code Review
+
+Static analysis as a part of the code review
+
+## 1. Performing
+
+出于多种原因，进行注重安全的 code review
+
+- 寻找一些可利用的漏洞，来证明额外的安全投资是合理的；
+- 多于每一个没有考虑安全的大型项目，团队不得不对代码进行初步检查并做安全性改进；
+- 在每一个 release 周期，项目最少进行一次 security review
+
+
+
+review cycle
+
+- 建立目标
+- 运行静态检测工具
+- review 代码
+- 进行修复
+
+
+
+## 2. Metrics
+
+静态测试的指标：误报率和漏报率(人工测试足够样本进行估算)。
+
+一个更深的问题是无法估计一组漏洞带来的风险。
+
+
+
+重点指标：
+
+- 计算漏洞密度
+- 按照严重程度比较项目
+- 按照类别细分结果
+- 监测趋势
+
+
+
+
+
