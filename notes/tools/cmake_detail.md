@@ -4,6 +4,8 @@
 
 CMake 是一种跨平台工具，用来自动化构建、测试和打包软件。使用 CMake 的流程是先生成对应平台的工程文件(比如 Windows 平台可以生成 VS 工程，macOS 平台可以生成 Xcode 或 Makefile 文件，Linux 平台可以生成 Makefile 文件等等)，之后再进行对应的操作。
 
+以下内容对 CMake v3.16 进行说明。
+
 
 
 # 二、基本概念
@@ -39,9 +41,36 @@ cmake -S src -B build
 
 
 
-
-
 # 三、基本命令
+
+## 1. cmake_minimum_required
+
+设置项目需要 CMake 的最低版本
+
+```sh
+cmake_minimum_required(VERSION <min>[...<max>] [FATAL_ERROR])
+```
+
+其中 `...` 是字面量，`<max>` 指定最大版本，版本用 `major.minor[.patch[.tweak]]` 格式指定。
+
+`...<max>` 在 CMake 3.12 版本及以上可用。
+
+`FATAL_ERROR` 被 CMake 2.6 及更高版本忽略。
+
+<br>
+
+例子：
+
+```sh
+cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.12...3.16)
+```
+
+<br>
+
+其他说明：
+
+cmake_minimum_required 会隐式调用 `cmake_policy(VERSION)` 命令指定 CMake 版本范围。当 `<min>` 高于 2.4 版本时，隐式调用 `cmake_policy(VERSION <min>[...<max>])`；否则，隐式调用 `cmake_policy(VERSION 2.4[...<max>])`。
 
 
 
