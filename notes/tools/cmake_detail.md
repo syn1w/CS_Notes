@@ -84,7 +84,7 @@ cmake_minimum_required 会隐式调用 `cmake_policy(VERSION)` 命令指定 CMak
 
 
 
-##2. project
+## 2. project
 
 ```cmake
 project(<PROJECT-NAME> [<language-name>...])
