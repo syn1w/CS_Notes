@@ -10,6 +10,8 @@ CMake 是一种跨平台工具，用来自动化构建、测试和打包软件�
 
 # 二、基本概念
 
+## 1. cmake
+
 通过 CMake 语言([CMake language](https://cmake.org/cmake/help/v3.16/manual/cmake-language.7.html#manual:cmake-language(7))) 指定特定平台的构建系统(buildsystem)。
 
 **Source Tree：**在工程中，包含源文件的顶级目录。从顶级目录的叫做 `CMakeLists.txt` 的文件开始，这个文件指定了 buildsystem 、构建的目标及其依赖项。
@@ -41,13 +43,21 @@ cmake -S src -B build
 
 
 
+## 2. buildsystem
+
+基于 CMake 的构建系统被构建为一系列高级逻辑目标(targets)，每个 target 对应一个可执行文件或库，或者是包含自定义 commands 的自定义 target。在两个 targets 之间的依赖决定了构建顺序和修改之后重新生成的规则。
+
+
+
+
+
 # 三、基本命令
 
 ## 1. cmake_minimum_required
 
 设置项目需要 CMake 的最低版本
 
-```sh
+```cmake
 cmake_minimum_required(VERSION <min>[...<max>] [FATAL_ERROR])
 ```
 
@@ -61,7 +71,7 @@ cmake_minimum_required(VERSION <min>[...<max>] [FATAL_ERROR])
 
 例子：
 
-```sh
+```cmake
 cmake_minimum_required(VERSION 3.14)
 cmake_minimum_required(VERSION 3.12...3.16)
 ```
@@ -71,6 +81,50 @@ cmake_minimum_required(VERSION 3.12...3.16)
 其他说明：
 
 cmake_minimum_required 会隐式调用 `cmake_policy(VERSION)` 命令指定 CMake 版本范围。当 `<min>` 高于 2.4 版本时，隐式调用 `cmake_policy(VERSION <min>[...<max>])`；否则，隐式调用 `cmake_policy(VERSION 2.4[...<max>])`。
+
+
+
+##2. project
+
+```cmake
+project(<PROJECT-NAME> [<language-name>...])
+project(<PROJECT-NAME>
+        [VERSION <major>[.<minor>[.<patch>[.<tweak>]]]]
+        [DESCRIPTION <project-description-string>]
+        [HOMEPAGE_URL <url-string>]
+        [LANGUAGES <language-name>...])
+```
+
+设置项目的名称，并将其存储到 `PROJECT_NAME` 命令中，从顶层 `CMakeLists.txt` 调用时，还会将项目名称存储到 `CMAKE_PROJECT_NAME` 中。
+
+还会设置以下的变量：
+
+- [`PROJECT_SOURCE_DIR`](https://cmake.org/cmake/help/v3.16/variable/PROJECT_SOURCE_DIR.html#variable:PROJECT_SOURCE_DIR), [`<PROJECT-NAME>_SOURCE_DIR`](https://cmake.org/cmake/help/v3.16/variable/PROJECT-NAME_SOURCE_DIR.html#variable:_SOURCE_DIR)
+- [`PROJECT_BINARY_DIR`](https://cmake.org/cmake/help/v3.16/variable/PROJECT_BINARY_DIR.html#variable:PROJECT_BINARY_DIR), [`<PROJECT-NAME>_BINARY_DIR`](https://cmake.org/cmake/help/v3.16/variable/PROJECT-NAME_BINARY_DIR.html#variable:_BINARY_DIR)
+
+以下的变量由可选的参数设置，如果未设置参数，则对应的变量被设置为空字符串。
+
+- `VERSION <major>[.<minor>[.<patch>[.<tweak>]]]]`
+
+    - [`PROJECT_VERSION`](https://cmake.org/cmake/help/v3.16/variable/PROJECT_VERSION.html#variable:PROJECT_VERSION), [`<PROJECT-NAME>_VERSION`](https://cmake.org/cmake/help/v3.16/variable/PROJECT-NAME_VERSION.html#variable:_VERSION)
+    - [`PROJECT_VERSION_MAJOR`](https://cmake.org/cmake/help/v3.16/variable/PROJECT_VERSION_MAJOR.html#variable:PROJECT_VERSION_MAJOR), [`<PROJECT-NAME>_VERSION_MAJOR`](https://cmake.org/cmake/help/v3.16/variable/PROJECT-NAME_VERSION_MAJOR.html#variable:_VERSION_MAJOR)
+    - [`PROJECT_VERSION_MINOR`](https://cmake.org/cmake/help/v3.16/variable/PROJECT_VERSION_MINOR.html#variable:PROJECT_VERSION_MINOR), [`<PROJECT-NAME>_VERSION_MINOR`](https://cmake.org/cmake/help/v3.16/variable/PROJECT-NAME_VERSION_MINOR.html#variable:_VERSION_MINOR)
+    - [`PROJECT_VERSION_PATCH`](https://cmake.org/cmake/help/v3.16/variable/PROJECT_VERSION_PATCH.html#variable:PROJECT_VERSION_PATCH), [`<PROJECT-NAME>_VERSION_PATCH`](https://cmake.org/cmake/help/v3.16/variable/PROJECT-NAME_VERSION_PATCH.html#variable:_VERSION_PATCH)
+    - [`PROJECT_VERSION_TWEAK`](https://cmake.org/cmake/help/v3.16/variable/PROJECT_VERSION_TWEAK.html#variable:PROJECT_VERSION_TWEAK), [`<PROJECT-NAME>_VERSION_TWEAK`](https://cmake.org/cmake/help/v3.16/variable/PROJECT-NAME_VERSION_TWEAK.html#variable:_VERSION_TWEAK).
+
+- `DESCRIPTION <project-description-string>`
+
+    [`PROJECT_DESCRIPTION`](https://cmake.org/cmake/help/v3.16/variable/PROJECT_DESCRIPTION.html#variable:PROJECT_DESCRIPTION), [`_DESCRIPTION`](https://cmake.org/cmake/help/v3.16/variable/PROJECT-NAME_DESCRIPTION.html#variable:_DESCRIPTION)
+
+- `HOMEPAGE_URL <url-string>`
+
+    [`PROJECT_HOMEPAGE_URL`](https://cmake.org/cmake/help/v3.16/variable/PROJECT_HOMEPAGE_URL.html#variable:PROJECT_HOMEPAGE_URL), [`_HOMEPAGE_URL`](https://cmake.org/cmake/help/v3.16/variable/PROJECT-NAME_HOMEPAGE_URL.html#variable:_HOMEPAGE_URL)
+
+- `LANGUAGES <language-name>...`
+
+    支持的语言：`C, CXX(i.e. C++), CUDA, OBJC(i.e. Objective-C), OBJCXX, Fortran, ASM`
+
+项目的顶层必须包含对 project 的直接调用(不能 include)，如果不存在会发出警告，并且假设有 `project(Project)` 命令并设置默认语言 (C/C++)。
 
 
 
@@ -95,3 +149,7 @@ https://cliutils.gitlab.io/modern-cmake/
 
 
 ## 2. CMake 变量
+
+`PROJECT_NAME`:
+
+`CMAKE_PROJECT_NAME`:
