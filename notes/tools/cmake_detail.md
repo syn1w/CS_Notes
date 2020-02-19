@@ -14,9 +14,9 @@ CMake 是一种跨平台工具，用来自动化构建、测试和打包软件�
 
 通过 CMake 语言([CMake language](https://cmake.org/cmake/help/v3.16/manual/cmake-language.7.html#manual:cmake-language(7))) 指定特定平台的构建系统(buildsystem)。
 
-**Source Tree：**在工程中，包含源文件的顶级目录。从顶级目录的叫做 `CMakeLists.txt` 的文件开始，这个文件指定了 buildsystem 、构建的目标及其依赖项。
+**Source Tree**：在工程中，包含源文件的顶级目录。从顶级目录的叫做 `CMakeLists.txt` 的文件开始，这个文件指定了 buildsystem 、构建的目标及其依赖项。
 
-**Build Tree：**用于存储 buildsystem 文件和构建输出文件(比如可执行文件和库文件)的顶级目录。CMake 在 Build Tree 目录下写入 `CMakeCache.txt` 文件，用来标识为 Build Tree 目录并且存储一些持久的配置信息。
+**Build Tree**：用于存储 buildsystem 文件和构建输出文件(比如可执行文件和库文件)的顶级目录。CMake 在 Build Tree 目录下写入 `CMakeCache.txt` 文件，用来标识为 Build Tree 目录并且存储一些持久的配置信息。
 
 有两种 build 方式，一种是 *in-source*，Source Tree 和 Build Tree 为同一目录，但是不建议使用 in-source 构建；另一种是 *out-of-source*，Source Tree 和 Build Tree 为不同目录，进行构建更加方便。
 
@@ -46,6 +46,32 @@ cmake -S src -B build
 ## 2. buildsystem
 
 基于 CMake 的构建系统被构建为一系列高级逻辑目标(targets)，每个 target 对应一个可执行文件或库，或者是包含自定义 commands 的自定义 target。在两个 targets 之间的依赖决定了构建顺序和修改之后重新生成的规则。
+
+### **(1) 二进制 targets**
+
+可执行程序和库使用 [`add_executable()`](https://cmake.org/cmake/help/v3.16/command/add_executable.html#command:add_executable) 和 [`add_library()`](https://cmake.org/cmake/help/v3.16/command/add_library.html#command:add_library)  命令。生成的二进制文件在目标平台具有合适的[`PREFIX`](https://cmake.org/cmake/help/v3.16/prop_tgt/PREFIX.html#prop_tgt:PREFIX), [`SUFFIX`](https://cmake.org/cmake/help/v3.16/prop_tgt/SUFFIX.html#prop_tgt:SUFFIX) and extensions。二进制之间的依赖使用 [`target_link_libraries()`](https://cmake.org/cmake/help/v3.16/command/target_link_libraries.html#command:target_link_libraries) 命令。
+
+**二进制可执行程序**
+
+```cmake
+add_executable(mytool mytool.cpp)
+```
+
+**二进制库**
+
+默认情况下定义静态库 `STATIC`，除非指定类型。[`BUILD_SHARED_LIBS`](https://cmake.org/cmake/help/v3.16/variable/BUILD_SHARED_LIBS.html#variable:BUILD_SHARED_LIBS) 变量可以让 `add_library` 命令默认构建动态库。
+
+`MODULE` 库是不同的，通常不会链接，也就不能放到 `target_link_libraries()` 命令的右边。它是一种作为运行时技术作为插件被装载的类型。
+
+如果库没有导出任何非托管符号(比如 Windows 资源 DLL，C++/CLI DLL)，该库不能是 `SHARED` 库，因为 CMake 期待 `SHARED` 库至少导出一个符号。
+
+`OBJECT` 库定义了从给定源代码编译出的目标文件，而不是归档的静态库。
+
+```cmake
+# normal libraries
+add_library(archive SHARED archive.cpp zip.cpp lzma.cpp)
+add_library(archive STATIC archive.cpp zip.cpp lzma.cpp)
+```
 
 
 
@@ -124,7 +150,7 @@ project(<PROJECT-NAME>
 
     支持的语言：`C, CXX(i.e. C++), CUDA, OBJC(i.e. Objective-C), OBJCXX, Fortran, ASM`
 
-项目的顶层必须包含对 project 的直接调用(不能 include)，如果不存在会发出警告，并且假设有 `project(Project)` 命令并设置默认语言 (C/C++)。
+项目的顶层必须包含对 project 的直接调用(不能 include)，如果不存在会假设有 `project(Project)` 命令并设置默认语言 (C/C++)。
 
 
 
