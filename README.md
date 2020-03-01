@@ -8,6 +8,8 @@ Computer Science Notes
 
 [x86_64 AT&T 汇编](https://github.com/vczn/CS_Notes/blob/master/notes/architecture/x86_64_assembly.md)
 
+[计算机体系结构-量化研究方法](https://github.com/vczn/CS_Notes/blob/master/notes/architecture/arch.md)
+
 
 
 ## 2. 操作系统
@@ -45,5 +47,9 @@ Computer Science Notes
 
 [cmake基础](https://github.com/vczn/CS_Notes/blob/master/notes/tools/cmake_begin.md)
 
+[cmake详解](https://github.com/vczn/CS_Notes/blob/master/notes/tools/cmake_detail.md)
+
 
 ## 9. 其他
+
+[SVG](https://github.com/vczn/CS_Notes/blob/master/notes/other/SVG.md)
