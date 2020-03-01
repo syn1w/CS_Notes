@@ -1937,11 +1937,11 @@ find . -name "*.txt" | xargs rm -rf
 
 ## 2. ag
 
-类似于 `grep` 和 `ack`，可以更快速更简单地搜索文件内容
+类似于 `grep` 和 `ack`，可以更快速更简单地递归搜索文件内容或文件
 
 ```sh
 ag [FILE-TYPE] [OPTIONS] PATTERN [PATH]
--g         # 打印模式匹配到地文件名
+-g         # 递归查找文件名
 -c         # count，仅打印在每个文件中匹配数量
 -f         # following symlink
 -F|-Q      # 不解析 PATTERN作为正则表达式，只作为字符串字面量
