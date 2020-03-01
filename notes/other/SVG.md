@@ -50,11 +50,14 @@ div {
 
 **基本形状**
 
-可以绘制直线(`line`)，矩形(`rect`)，圆(`circle`)，椭圆(`ellipse`)，折线(`polyline`)，多边形(`polygen`)，路径(`path`，可以绘制高级图像)、文本(`text`)、。
+可以绘制直线(`line`)，矩形(`rect`)，圆(`circle`)，椭圆(`ellipse`)，折线(`polyline`)，多边形(`polygen`)，路径(`path`，可以绘制高级图像)、文本(`text`)。
 
+```xml
 <svg width="140" height="170" xmlns="http://www.w3.org/2000/svg">
 	<circle cx="70" cy="95" r="50" stroke="black" fill="none" />
 </svg>
+```
+
 
 还可以进行分层、设置透明度、转换(`transform`)，渐变、链接、动画、统计图
 
