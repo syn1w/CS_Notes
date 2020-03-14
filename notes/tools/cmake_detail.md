@@ -75,6 +75,24 @@ add_library(archive STATIC archive.cpp zip.cpp lzma.cpp)
 
 
 
+### (2) build specification
+
+使用 [`target_include_directories()`](https://cmake.org/cmake/help/v3.16/command/target_include_directories.html#command:target_include_directories), [`target_compile_definitions()`](https://cmake.org/cmake/help/v3.16/command/target_compile_definitions.html#command:target_compile_definitions) 和 [`target_compile_options()`](https://cmake.org/cmake/help/v3.16/command/target_compile_options.html#command:target_compile_options) 命令分别指定 [`INCLUDE_DIRECTORIES`](https://cmake.org/cmake/help/v3.16/prop_tgt/INCLUDE_DIRECTORIES.html#prop_tgt:INCLUDE_DIRECTORIES), [`COMPILE_DEFINITIONS`](https://cmake.org/cmake/help/v3.16/prop_tgt/COMPILE_DEFINITIONS.html#prop_tgt:COMPILE_DEFINITIONS) 和 [`COMPILE_OPTIONS`](https://cmake.org/cmake/help/v3.16/prop_tgt/COMPILE_OPTIONS.html#prop_tgt:COMPILE_OPTIONS) 或者 [`INTERFACE_INCLUDE_DIRECTORIES`](https://cmake.org/cmake/help/v3.16/prop_tgt/INTERFACE_INCLUDE_DIRECTORIES.html#prop_tgt:INTERFACE_INCLUDE_DIRECTORIES), [`INTERFACE_COMPILE_DEFINITIONS`](https://cmake.org/cmake/help/v3.16/prop_tgt/INTERFACE_COMPILE_DEFINITIONS.html#prop_tgt:INTERFACE_COMPILE_DEFINITIONS) 和 [`INTERFACE_COMPILE_OPTIONS`](https://cmake.org/cmake/help/v3.16/prop_tgt/INTERFACE_COMPILE_OPTIONS.html#prop_tgt:INTERFACE_COMPILE_OPTIONS)。
+
+每个命令都有 `PRIVATE, PUBLIC, INTERFACE` 三种模式，`PRIVATE` 模式仅填充非 interface 变量，`INTERFACE` 模式仅填充 interface 变量，`PUBLIC` 变量填充两种变量。
+
+**目标属性**
+
+在 [`INCLUDE_DIRECTORIES`](https://cmake.org/cmake/help/v3.16/prop_tgt/INCLUDE_DIRECTORIES.html#prop_tgt:INCLUDE_DIRECTORIES) 中的条目在编译命令中添加 `-I` 或 `-isystem` 前缀并且在属性值以适当的顺序。
+
+在 [`COMPILE_DEFINITIONS`](https://cmake.org/cmake/help/v3.16/prop_tgt/COMPILE_DEFINITIONS.html#prop_tgt:COMPILE_DEFINITIONS) 中的条目在编译命令中添加 `-D` 或 `/D` 前缀，没有特定的顺序。[`DEFINE_SYMBOL`](https://cmake.org/cmake/help/v3.16/prop_tgt/DEFINE_SYMBOL.html#prop_tgt:DEFINE_SYMBOL) 目标属性也作为编译定义添加，作为 `SHARED` 和 `MODULE` 库目标特殊方便的情况。
+
+在 [`COMPILE_OPTIONS`](https://cmake.org/cmake/help/v3.16/prop_tgt/COMPILE_OPTIONS.html#prop_tgt:COMPILE_OPTIONS) 中的条目对于 shell 会被转义并按照适当的顺序添加，一些选项也会单独处理，比如 [`POSITION_INDEPENDENT_CODE`](https://cmake.org/cmake/help/v3.16/prop_tgt/POSITION_INDEPENDENT_CODE.html#prop_tgt:POSITION_INDEPENDENT_CODE)
+
+NOTE: 关于带有 `INTERFACE` 和不带的区别见[这里](https://stackoverflow.com/questions/52059777/what-is-the-difference-between-include-directories-and-interface-include-directo)，文档没有提到，不是100%确定，大意带有 `INTERFACE` 的 必须是 library target 或者是 interaface library target。
+
+
+
 
 
 # 三、基本命令
