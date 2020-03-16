@@ -28,8 +28,8 @@ Ensure(or get close to soundness), while making good trade-offs between analysis
 - Concrete -> Abstraction
 
 - over-approximation
-  - Transfer functions: Transfer functions define how to evaluate different program statements on abstract values.
-  - Control flows
+  - Transfer functions: Transfer functions define how to evaluate different program statements on abstract values. such as + op + = +, - op - = -, + op - = T.
+  - Control flows. union the sign at merges.
 
 
 
@@ -191,4 +191,68 @@ Control Flow Graph Analysis
 
 - CFG serves as the basic structure for static analysis
 - The node in CFG can be an individual 3-address instruction, or Basic Block(BB)
+
+
+
+# 三、Data Flow Analysis
+
+## 1. intro
+
+Flows through the Nodes(BBs/statements) and Edges(control flows) of CFG(a program).
+
+- may analysis: outputs information that may be true (over-approximation, static analysis).
+- must analysis: outputs information that must be true (under-approximation, compiler optimization). 
+
+Different data-flow analysis application have:
+
+- different *data abstraction* and
+- different *flow safe-approximation* strategies, i.e.
+- different *transfer functions* and *control-flow* handling.
+
+
+
+## 2. basic
+
+Each execution of an IR statement transforms an *input state* to a new *output state*.
+
+The input(output) state is associated with the *program point* before(after) the statement.
+
+```mermaid
+stateDiagram
+    [*] --> s1: IN[s1]
+	s1 --> s2: OUT[s1]==IN[s2]
+```
+
+
+
+```mermaid
+stateDiagram
+	state fork_state <<fork>>
+	s1 --> fork_state
+	fork_state --> s2: IN[s2]==OUT[s1]
+	fork_state --> s3: ==IN[s3]
+```
+
+```mermaid
+stateDiagram
+	state join_state <<join>>
+	s1 --> join_state
+	s2 --> join_state
+	join_state --> s3: IN[s3] == OUT[s1] ^ OUT[s2]
+```
+
+In each data-flow analysis application, we associate with every program point a **data-flow value** that represents an **abstraction** of the set of all possible **program states** that can be observed for the point.
+
+Transfer function's constraints:
+
+- forward analysis: $OUT[s] = f_s(IN[s])$
+
+- backward analysis: $IN[s] = f_s(OUT[s])$
+
+CFG's constraints:
+
+- within a BB: $IN[s_{i+1}] = OUT[s_i], for\;all\;i=1,2,...,n-1$
+- among BBs: $IN[B]=IN[s_1], OUT[B]=OUT[s_n]$
+  - forward analysis: $OUT[B]=f_B(IN[B]), f_{s_B} = f_{s_n}\circ ... f_{s_2} \circ f_{s_1}, IN[B] = \bigwedge_{P\;a\;predecessor\;of\;B\;} OUT[P]$
+  - backward analysis: $IN[B] = f_B(OUT[B]), f_B = f_{s_1} \circ... \circ f_{s_{n-1}} \circ f_{s_n}, OUT[B] = \bigwedge_{S\;a\;successor\;of\;B} IN[S] $
 
