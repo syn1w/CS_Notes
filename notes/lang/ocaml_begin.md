@@ -11,7 +11,7 @@ sudo zypper install ocaml # SuSE
 
 之后输入 `ocaml` 命令，显示 `OCaml version 4.05.0`  
 
-## 1. 尝试 OCaml 简单的表达式。
+## 1. 尝试 OCaml 简单的表达式
 使用交互式顶层环境(interactive toplevel)或REPL(Read-Eval-Print-Loop)。`ocaml` 命令提供了一个十分基础的顶层环境，最好使用 `utop` 交互环境。  
 **安装 `utop`**
 
