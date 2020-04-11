@@ -121,6 +121,7 @@ float i +. f;;
 ## 7. 函数的类型
 对于一个函数 `f`，其参数类型为 `arg1, arg2, ..., argn`, 返回类型是 `rettype`  
 编译器会显示其函数类型为
+
 ```txt
 f: arg1 -> arg2 -> ... argn -> rettype
 ```
@@ -136,6 +137,132 @@ let return_three x = 3;
 ```
 
 `'a` 代表任意类型，之后会进行详述
+
+
+
+# 二、程序结构
+
+## 1. “变量”(表达式)
+
+```ocaml
+let average a b =
+	let sum = a +. b in
+	sum /. 2.0;;
+```
+
+`let name = expression in` 用来定义一个命名的**局部表达式**。之后 `name` 就可以代替 `expression`，直到一个 `;;` 结束本代码块。  
+
+`sum` 只是 `a +. b` 的别名，所以无法给 `sum` 赋值。  
+
+并不是每次引用 `sum`，`a +. b` 就会被求值一次，`sum` 只是一个局部绑定(binding)。绑定是不可变的，不是变量，不能被改变，只能被隐藏。  
+
+也可以像定义局部表达式那样在全局区域定义全局表达式  
+
+
+
+**let 绑定**：任何 `let ...`，无论在全局 (top level) 还是在函数中，经常被称作是 `let binding`   
+
+
+
+## 2. 引用(真正的变量)
+
+```ocaml
+ref 0;;
+(* - : int ref = {contents = 0} *)
+```
+
+`ref 0` 创造了一个引用，不过因为没有命名会被GC回收。  
+
+```ocaml
+let x = ref 0;; (* decl *)
+(* val x : int ref = {contents = 0} *)
+x := 42;;  (* assign *)
+!x;;       (* dereference *)
+```
+
+
+
+## 3. 嵌套函数
+
+类似于 lambda 表达式。嵌套函数可以使用包含它的函数当前可见的所有变量。这就是 "lexical scoping（词法变量域）"。  
+
+一个嵌套函数的例子：  
+
+```ocaml
+let read_whole_channel chan =
+  let buf = Buffer.create 4096 in
+  let rec loop () =
+    let newline = input_line chan in
+    Buffer.add_string buf newline;
+    Buffer.add_char buf '\n';
+    loop ()
+  in
+  try
+    loop ()
+  with
+    End_of_file -> Buffer.contents buf;;
+```
+
+## 4. 模块和 `open`
+
+OCaml 带有很多模块(代码的库)。例如画图、GUI部件交互、处理大数、数据结构、POSIX 系统调用等模块。  
+
+这些库位于 `/usr/lib/ocaml/` 目录下(Unix 环境下)，比如 `Graphics` 库。    
+
+模块 `Graphics` 有 5 个文件，扩展名分别是 `a, cma, cmi, cmxa, mli`    
+
+只关注 `graphics.mli` 文件，因为其他都不是文本文件。主要文件名开头是小写字母，OCaml 文件名第一个字母大写作为模块名。    
+
+使用 `Graphics` 中的函数，有两种方法。一种是 `open Graphics;;`，另一种在函数调用前加模块前缀，比如 `Graphics.open_graph`。`open` 像 Java 中的 `import` 更像 Perl 中的 `use` 或 Python 中的 `from Foo import *`。  
+
+`Pervasives` 无需使用 `open`，所有的符号被自动导入到 OCaml 程序中。  
+
+**重命名符号**  
+
+如果模块名太长或想换个名字，可以使用 `module Gr = Graphics;;`。实际在引入一个嵌套模块。  
+
+
+
+## 6. `;` 和 `;;`
+
+`;;` 表示语句的结束，`;` 被称为连接点(sequence point)，和 C/C++ 中一样的用途。
+
+使用 `;` 和 `;;` 的规则：
+
+- 规则1： 使用 `;;` 在最顶端分隔不同的语句。并且绝对不要再函数定义中或其他语句中使用。
+- 规则2：有时候可以省略 `;;`，总结起来就是 OCaml 能猜出这是语句结尾的地方。比如 `let, open, type` 之前，文件的最后，还有其他非常少能够猜到这是语句结尾的地方。
+- 规则3：把 `let ... in` 看成一条语句，永远不要在它后面加上 `;`
+- 规则4：在所有代码块中其他的语句后面跟上一个单独的 `;`
+
+关于 `;` 的补充：  
+
+`;` 也是一个运算符，`;` 的类型是 `int -> 'b -> 'b`，接受两个值并返回第二个，类似于 C/C++ 中的 `,` 运算符。  
+
+下面的代码完全合法都在做同一件事情：  
+
+```ocaml
+let f x b y = if b then x+y else x+0
+let f x b y = x + (if b then y else 0)
+let f x b y = x + (match b with true -> y | false -> 0)
+let f x b y = x + (let g z = function true -> z | false -> 0 in g y b)
+let f x b y = x + (let _ = y + 3 in (); if b then y else 0)
+```
+
+OCaml 表达式的定义比 C 更广一些，C 有 statements 的概念，但是 C 的 statements 只是 OCaml 中的表达式。  
+
+`;` 不同于 `+` 的一个地方是不能像函数一样引用。比如：
+
+```ocaml
+let sum_list = List.fold_left ( + ) 0
+```
+
+
+
+## 7. 其他
+
+`?foo` 表示可选参数，`~foo` 表示命名参数，`foo#bar` 调用对象 `foo` 的 `bar` 方法。类似于 `foo->bar`  
+
+
 
 
 
