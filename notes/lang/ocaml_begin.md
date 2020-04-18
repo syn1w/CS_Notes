@@ -66,6 +66,7 @@ char 类型不支持 Unicode 或 UTF-8，需要使用 [comprehensive Unicode lib
 ## 4. 调用函数
 OCaml 调用函数参数没有括号，也没有逗号分隔多个参数，但是括号和逗号有其他的意思  
 比如 `repeated` 函数，它的参数是一个字符串 s 和一个数 n，返回值是把 s 重复 n 遍形成的新字符串  
+
 ```ocaml
 repeated "hello" 3
 ```
@@ -184,7 +185,7 @@ x := 42;;  (* assign *)
 
 ## 3. 嵌套函数
 
-类似于 lambda 表达式。嵌套函数可以使用包含它的函数当前可见的所有变量。这就是 "lexical scoping（词法变量域）"。  
+嵌套函数可以使用包含它的函数当前可见的所有变量。这就是 "lexical scoping（词法变量域）"。  
 
 一个嵌套函数的例子：  
 
@@ -202,6 +203,10 @@ let read_whole_channel chan =
   with
     End_of_file -> Buffer.contents buf;;
 ```
+
+`let` 和 `in` 结合使用时，可以在任意局部作用域引入一个新的绑定，`in` 标志这个作用域的开始，到 `;;` 作用域结束。
+
+
 
 ## 4. 模块和 `open`
 
@@ -223,7 +228,7 @@ OCaml 带有很多模块(代码的库)。例如画图、GUI部件交互、处理
 
 
 
-## 6. `;` 和 `;;`
+## 5. `;` 和 `;;`
 
 `;;` 表示语句的结束，`;` 被称为连接点(sequence point)，和 C/C++ 中一样的用途。
 
@@ -258,11 +263,216 @@ let sum_list = List.fold_left ( + ) 0
 
 
 
-## 7. 其他
+## 6. 其他
 
-`?foo` 表示可选参数，`~foo` 表示命名参数，`foo#bar` 调用对象 `foo` 的 `bar` 方法。类似于 `foo->bar`  
+`?foo` 表示可选参数。`~foo` 表示命名参数。`foo#bar` 调用对象 `foo` 的 `bar` 方法，类似于 `foo->bar`  
 
 
+
+# 三、模块
+
+## 1. 基本用法
+
+```ocaml
+(* amodule.ml *)
+let hello () = print_endline "hello"
+
+(* bmodule.ml *)
+Amodule.hello()
+```
+
+```sh
+ocamlopt -c amodule.ml
+ocamlopt -c bmodule.ml
+ocamlopt -o hello amodule.cmx bmodule.cmx
+```
+
+得到输出 `hello` 的可执行文件，也可以使用 `open` 指令。倾向于避免使用 `;;`  
+
+其他比较常用的模块函数比如 `List.iter, Printf.printf`  
+
+`ocamlopt` 是 OCaml native-code 编译器
+
+
+
+## 2. 接口和签名
+
+一个模块可以给其他程序提供很多功能（函数，类型，子模块，……）。如果没有什么特别指定，在模块中定义的**一切**可以从外部访问。  
+
+比如
+
+```ocaml
+(* amodule.ml *)
+let message = "Hello"
+let hello () = print_endline message
+```
+
+事实上，`Amodule` 有下面的接口
+
+```ocaml
+val message : string
+val hello : unit -> unit
+```
+
+但是在很多情况下，一个模块更应该只提供一系列有限（但是有用的）接口，而隐藏一些辅助的函数和类型。  
+
+加入不想让其他模块直接访问 `message`，需要定义一个更严格的接口来隐藏它。
+
+```ocaml
+(* amodule.mli *)
+val hello : unit -> unit
+```
+
+`.mli` 文件必须在对应的 `.ml` 文件之前编译
+
+```sh
+ocamlc -c amodule.mli
+ocamlopt -c amodule.ml
+```
+
+关于 OCaml 文件名后缀约定：
+
+| OCaml 字节码 |           OCaml 原生码            | 类比C  |    用途    |
+| :----------: | :-------------------------------: | :----: | :--------: |
+|     `ml`     |               `ml`                |  `c`   |   源文件   |
+|    `mli`     |               `mli`               |  `h`   |   头文件   |
+|    `cmo`     | `cmx/o(实际的机器码，通常可忽略)` |  `o`   |  目标文件  |
+|    `cma`     |          `cmxa/a(同上)`           |  `a`   |   库文件   |
+|    `prog`    |            `prog.opt`             | `prog` | 可执行程序 |
+
+
+
+## 3. 抽象类型
+
+在模块中定义新的类型：
+
+```ocaml
+type date = { day : int; month : int; year : int }
+```
+
+在编写 `mli` 文件时，类型也可以做成抽象的(只给出名字)
+
+```ocaml
+type date
+val create : ?days:int -> ?months:int -> ?years:int -> unit -> date
+val sub : date -> date -> date
+val years : date -> float
+```
+
+或 record 的域做成只读的：
+
+```ocaml
+type date = private { ... }
+```
+
+## 4. 子模块
+
+`example.ml` 文件本身可以隐式代表 `Example` 模块，一个给定的模块也可以在一个文件中显式定义，成为当前模块的一个子模块。  
+
+```ocaml
+(* example.ml *)
+module Hello = struct
+  let message = "hello"
+  let hello () = print_endline message
+end
+let goodbye () = print_endline "goodbye"
+let hello_goodbye () =
+  Hello.hello ();
+  goodbye ()
+  
+  
+(* another.ml *)
+let () =
+  Example.Hello.hello ();
+  Example.goodbye ()
+```
+
+**子模块接口**
+
+可以约束一个给子模块的接口，叫做模块类型(Module Types)。
+
+```ocaml
+module Hello : sig
+ val hello : unit -> unit
+end = 
+struct
+  let message = "hello"
+  let hello () = print_endline message
+end
+  
+(* 在这里 Hello.message 不再能被访问。 *)
+let goodbye () = print_endline "goodbye"
+let hello_goodbye () =
+  Hello.hello ();
+  goodbye ()
+```
+
+把所有东西写在一个代码块里面是不优雅的，所以我们一般选择单独定义模块签名。  
+
+```ocaml
+module type Hello_type = sig
+ val hello : unit -> unit
+end
+  
+module Hello : Hello_type = struct
+  ...
+end
+```
+
+
+
+## 5. Functors
+
+声明 Functors:
+
+```ocaml
+module F (Arg : Arg_type) : F_type
+```
+
+定义 Functors:
+
+```ocaml
+module F (Arg : Arg_type ) = struct
+  ...
+end
+```
+
+或  
+
+```ocaml
+module F(Arg : Arg_type) : F_type =
+struct 
+  ...
+end
+```
+
+
+
+## 6. 模块实际的例子
+
+```ocaml
+module M = List;; (* type-level module aliases*)
+```
+
+模块扩展(原文是包含，感觉使用 extension 更准确)，对一个已有模块来扩充函数
+
+```ocaml
+module List = struct
+  include List
+  let rec optmap f = function
+  | [] -> []
+  | head :: tail ->
+    match f head with
+      | None -> optmap f tail
+      | Some x -> x :: optmap f tail
+```
+
+创建了  `Extensions.List` 模块，这个模块有标准 `List` 模块所有的东西，加上一个新的 `optmap` 函数，要覆盖默认的 `List` 模块所要做的是在 `ml` 文件的开头  
+
+```ocaml
+open Extensions
+List.optmap ...
+```
 
 
 
