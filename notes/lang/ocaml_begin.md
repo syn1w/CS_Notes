@@ -63,88 +63,9 @@ char 类型不支持 Unicode 或 UTF-8，需要使用 [comprehensive Unicode lib
 字符串并非字符列表，有自己内部更高效的表示  
 `unit` 类似于 C 中的 `void`，之后再详述
 
-## 4. 调用函数
-OCaml 调用函数参数没有括号，也没有逗号分隔多个参数，但是括号和逗号有其他的意思  
-比如 `repeated` 函数，它的参数是一个字符串 s 和一个数 n，返回值是把 s 重复 n 遍形成的新字符串  
-
-```ocaml
-repeated "hello" 3
-```
-但是 `repeated("hello", 3)` 在 OCaml 中是合法的，意义是调用 `repeated` 函数，参数是一个含有两个元素的 `pair`
-```ocaml
-repeated (prompt_string "Name please: ") 3
-```
-`prompt_string` 是返回用户输入的字符串，一般情况下，规则是：“括号只括起整个函数调用，不要括起函数调用的参数。” 下面是更多的例子：
-```ocaml
-f 5 (g "hello") 3    (* f has three arguments, g has one argument *)
-f (g 3 4)            (* f has one argument, g has two arguments *)
-```
-
-## 5. 函数定义
-```ocaml
-let average a b =
-    (a +. b) /. 2.0;;
-(* val average: float -> float -> float = <fun> *)
-```
-
-使用 `let` 创建一个函数变量 `average`，参数为 `a b`，类似于把值绑定到变量名上  
-
-关于 OCaml 的一些特性：
-- OCaml 是*强类型语言*
-- OCaml 用*类型推导*(type inference)找出类型，所以无需注明类型
-- OCaml 不做任何的隐式类型转换
-- 由于 type inference 的副作用，OCaml 不允许任何形式的重载(包括运算符重载)。对于整数相加使用 `+`，两个浮点数相加使用 `+.`。其他运算符有 `-.`，`*.`，`/.` 也是这样
-- First-class functions
-- Parametric polymorphism(参数化多态)，类似与 C++ 中的 `template`
-
-**柯里(curried)函数**
-
-上面的 `average` 函数可以改写成下面的形式  
-
-```ocaml
-let average =
-  (fun a -> (fun b -> (a +. b) /. 2.0));;
-(* val average: float -> float -> float = <fun> *)
-```
-
-`average` 是一个单参数的函数，该函数返回一个单参数的函数，内层嵌套函数返回最终结果，这种函数被称为柯里函数(命名源自于 Haskell Curry)，`->` 具有右结合性。
 
 
-
-**递归函数**
-OCaml 一般函数不允许递归，如果需要定义递归函数，需要 `rec` 关键字  
-
-```ocaml
-(* Fibonacci function *)
-let rec fib n = if n < 2 then n else (fib (n-1)) + (fib (n-2));;
-fib 3;; (* 3 *)
-```
-
-**匿名函数**
-
-```ocaml
-(fun x -> x + 1);;
-(* - : int -> int = <fun> *)
-
-(fun x -> x + 1) 7;;
-(* - : int = 8*)
-
-(* as argument *)
-List.map ~f:(fun x -> x + 1) [1;2;3];;
-(* - : int list = [2; 3; 4] *)
-
-(* put into data structure *)
-let increments = [ (fun x -> x + 1); (fun x -> x + 2)];;
-val increments : (int -> int) list = [<fun>; <fun>]
-List.map ~f:(fun g -> g 5) increments;;
-(* - : int list = [6; 7] *)
-```
-
-把两个函数放到数组中，`fun g -> g 5` 是一个函数，这个函数分别用数组中的每个函数作为参数。
-
-
-
-## 6. 显式类型转换
+## 4. 显式类型转换
 
 上面说到 OCaml 不做任何隐式类型转换，确实需要做类型转换使用显式类型转换  
 以整数(`i`)加上一个浮点数(`f`)为例进行说明：
@@ -160,132 +81,6 @@ float i +. f;;
 ```
 
 Note: `float_of_int/float` 函数相当于 Pervasives 库提供的 `Float.of_int`  
-
-## 7. 函数的类型
-
-对于一个函数 `f`，其参数类型为 `arg1, arg2, ..., argn`, 返回类型是 `rettype`  
-编译器会显示其函数类型为
-
-```txt
-f: arg1 -> arg2 -> ... argn -> rettype
-```
-
-如果一个函数没有返回值，把返回值写成 `unit` 类型，类似于 `void`  
-```ocaml
-output_char : out_channel -> char -> unit
-```
-如果一个函数的参数可以是任意类型，比如  
-```ocaml
-let return_three x = 3;
-(* return_three : 'a -> int *)
-```
-
-`'a` 代表任意类型，之后会进行详述
-
-
-
-## 8. 命令式编程
-
-OCaml 支持函数式编程和命令式编程，OCaml 中默认为函数式代码，变量绑定和大多数数据结构都是不可变的，不过 OCaml 对命令式的编程也提供了很好的支持。  
-
-包括可变的数据结构(比如数组和散列表)以及控制流语句(`for/while` 等)  
-
-**(1) 数组(array)**
-
-```ocaml
-let numbers = [|1; 2; 3; 4|];;
-val numbers : int array = [|1; 2; 3; 4|]
-numbers.(2) <- 4;;
-(* unit = () *)
-numbers;;
-(* - : int array = [1; 2; 4; 4] *)
-```
-
-`.(i)` 为数组索引，从 0 开始，`<-` 语法表示修改。
-
-
-
-**(2) 可变记录字段**
-
-```ocaml
-type running_sum = {
-  mutable sum : float;
-  mutable sum_sq : float; (* sum of squares *)
-  mutable samples : int;
-};;
-```
-
-```ocaml
-(* create and update running_sum *)
-let create () = { sum = 0.; sum_sq = 0.; samples = 0 }
-let update rsum x =
-  rsum.samples <- rsum.samples + 1;
-  rsum.sum     <- rsum.sum +. x;
-  rsum.sum_sq  <- rsum.sum_sq +. x *. x;;
-
-(* use *)
-let rsum = create();;
-List.iter [1.;3.;2.;-7.;4.;5.] ~f:(fun x -> update rsum x);;
-(* - : unit = () *)
-let mean rsum = rsum.sum /. float rsum.samples
-let stdev rsum = sqrt(rsum.sum_sq /. float float rsum.samples
-                   -. (rsum.sum /. float rsum.samples) ** 2.);;
-mean rsum;;
-(* - : float = 1.33333333333333326 *)
-```
-
-
-
-**(3) `ref`**
-
-可以使用 `ref` 创建单个可变值，`ref` 类型是标准库中预定义的类型，实际上它是一个包含一个可变字段 `contents` 的记录类型。
-
-```ocaml
-let x = { contents = 0 };
-x.contents <- x.contents + 1;;
-(* - : unit = () *)
-x;;
-(* - : int ref = { contents = 1 } *)
-```
-
-`ref` 的实现：
-
-```ocaml
-type 'a ref = { mutable contents : 'a }
-let ref x = { contents = x }
-let (!) r = r.contents
-let (:=) r x = r.contents <- x
-```
-
-例子
-
-```ocaml
-let sum list =
-  let sum = ref 0 in
-  List iter list ~f:(fun x -> sum := !sum + x);
-  !sum;;
-```
-
-
-
-**(4) `for/while`**
-
-```ocaml
-let permute arr =
-  let len = Array.length arr in
-  for i = 0 to len - 2 do
-    let j = i + Random.int (len - i) in
-    let tmp = arr.(i) in
-    arr.(i) <- arr.(j);
-    arr.(j) <- tmp
-  done;;
-
-open Core;;
-let arr = Array.init 20 ~f:(fun i -> i);;
-(* val arr : int array = [|0, 1, ..., 19|] *)
-permute arr;;
-```
-
 
 
 # 二、程序结构
@@ -408,15 +203,390 @@ OCaml 表达式的定义比 C 更广一些，C 有 statements 的概念，但是
 let sum_list = List.fold_left ( + ) 0
 ```
 
+## 6. 命令式编程
+
+OCaml 支持函数式编程和命令式编程，OCaml 中默认为函数式代码，变量绑定和大多数数据结构都是不可变的，不过 OCaml 对命令式的编程也提供了很好的支持。  
+
+包括可变的数据结构(比如数组和散列表)以及控制流语句(`for/while` 等)  
+
+**(1) 数组(array)**
+
+```ocaml
+let numbers = [|1; 2; 3; 4|];;
+val numbers : int array = [|1; 2; 3; 4|]
+numbers.(2) <- 4;;
+(* unit = () *)
+numbers;;
+(* - : int array = [1; 2; 4; 4] *)
+```
+
+`.(i)` 为数组索引，从 0 开始，`<-` 语法表示修改。
 
 
-## 6. 其他
 
-`?foo` 表示可选参数。`~foo` 表示命名参数。`foo#bar` 调用对象 `foo` 的 `bar` 方法，类似于 `foo->bar`  
+**(2) 可变记录字段**
+
+```ocaml
+type running_sum = {
+  mutable sum : float;
+  mutable sum_sq : float; (* sum of squares *)
+  mutable samples : int;
+};;
+```
+
+```ocaml
+(* create and update running_sum *)
+let create () = { sum = 0.; sum_sq = 0.; samples = 0 }
+let update rsum x =
+  rsum.samples <- rsum.samples + 1;
+  rsum.sum     <- rsum.sum +. x;
+  rsum.sum_sq  <- rsum.sum_sq +. x *. x;;
+
+(* use *)
+let rsum = create();;
+List.iter [1.;3.;2.;-7.;4.;5.] ~f:(fun x -> update rsum x);;
+(* - : unit = () *)
+let mean rsum = rsum.sum /. float rsum.samples
+let stdev rsum = sqrt(rsum.sum_sq /. float float rsum.samples
+                   -. (rsum.sum /. float rsum.samples) ** 2.);;
+mean rsum;;
+(* - : float = 1.33333333333333326 *)
+```
 
 
 
-# 三、模块
+**(3) `ref`**
+
+可以使用 `ref` 创建单个可变值，`ref` 类型是标准库中预定义的类型，实际上它是一个包含一个可变字段 `contents` 的记录类型。
+
+```ocaml
+let x = { contents = 0 };
+x.contents <- x.contents + 1;;
+(* - : unit = () *)
+x;;
+(* - : int ref = { contents = 1 } *)
+```
+
+`ref` 的实现：
+
+```ocaml
+type 'a ref = { mutable contents : 'a }
+let ref x = { contents = x }
+let (!) r = r.contents
+let (:=) r x = r.contents <- x
+```
+
+例子
+
+```ocaml
+let sum list =
+  let sum = ref 0 in
+  List iter list ~f:(fun x -> sum := !sum + x);
+  !sum;;
+```
+
+
+
+**(4) `for/while`**
+
+```ocaml
+let permute arr =
+  let len = Array.length arr in
+  for i = 0 to len - 2 do
+    let j = i + Random.int (len - i) in
+    let tmp = arr.(i) in
+    arr.(i) <- arr.(j);
+    arr.(j) <- tmp
+  done;;
+
+open Core;;
+let arr = Array.init 20 ~f:(fun i -> i);;
+(* val arr : int array = [|0, 1, ..., 19|] *)
+permute arr;;
+```
+
+
+## 7. 其他
+
+`?foo` 表示可选参数。`~foo` 表示命名参数(标签参数)。`foo#bar` 调用对象 `foo` 的 `bar` 方法，类似于 `foo->bar`  
+
+
+
+# 三、函数和模式匹配
+
+## 1. 函数基础
+
+**(1) 调用函数**
+
+OCaml 调用函数参数没有括号，也没有逗号分隔多个参数，但是括号和逗号有其他的意思  
+比如 `repeated` 函数，它的参数是一个字符串 s 和一个数 n，返回值是把 s 重复 n 遍形成的新字符串  
+
+```ocaml
+repeated "hello" 3
+```
+
+但是 `repeated("hello", 3)` 在 OCaml 中是合法的，意义是调用 `repeated` 函数，参数是一个含有两个元素的 `pair`
+
+```ocaml
+repeated (prompt_string "Name please: ") 3
+```
+
+`prompt_string` 是返回用户输入的字符串，一般情况下，规则是：“括号只括起整个函数调用，不要括起函数调用的参数。” 下面是更多的例子：
+
+```ocaml
+f 5 (g "hello") 3    (* f has three arguments, g has one argument *)
+f (g 3 4)            (* f has one argument, g has two arguments *)
+```
+
+**(2) 函数定义**
+
+```ocaml
+let average a b =
+    (a +. b) /. 2.0;;
+(* val average: float -> float -> float = <fun> *)
+```
+
+使用 `let` 创建一个函数变量 `average`，参数为 `a b`，类似于把值绑定到变量名上  
+
+关于 OCaml 的一些特性：
+
+- OCaml 是*强类型语言*
+- OCaml 用*类型推导*(type inference)找出类型，所以无需注明类型
+- OCaml 不做任何的隐式类型转换
+- 由于 type inference 的副作用，OCaml 不允许任何形式的重载(包括运算符重载)。对于整数相加使用 `+`，两个浮点数相加使用 `+.`。其他运算符有 `-.`，`*.`，`/.` 也是这样
+- First-class functions
+- Parametric polymorphism(参数化多态)，类似与 C++ 中的 `template`
+
+
+
+**(3) 函数的类型**
+
+对于一个函数 `f`，其参数类型为 `arg1, arg2, ..., argn`, 返回类型是 `rettype`  
+编译器会显示其函数类型为
+
+```txt
+f: arg1 -> arg2 -> ... argn -> rettype
+```
+
+如果一个函数没有返回值，把返回值写成 `unit` 类型，类似于 `void`  
+
+```ocaml
+output_char : out_channel -> char -> unit
+```
+
+如果一个函数的参数可以是任意类型，比如  
+
+```ocaml
+let return_three x = 3;
+(* return_three : 'a -> int *)
+```
+
+`'a` 代表任意类型，之后会进行详述
+
+
+
+## 2. 模式匹配基础
+
+**模式匹配**一些简单的例子，为之后的内容做铺垫  
+
+```ocaml
+let (ints, strs) = List.unzip [(1, "one"); (2, "two"); (3, "three")];;
+(* (ints, strs) is a pattern *)
+val ints : int list = [1; 2; 3]
+val strs : string list = ["one"; "two"; "three"]
+```
+
+```ocaml
+let distance (x1, y1) (x2, y2) =
+  sqrt((x1 -. x2) ** 2. +. (y1 -. y2) ** 2.);;
+val distance : float * float -> float * float -> float = <fun>
+```
+
+```ocaml
+let my_favorite_language languages =
+  match languages with
+  | first :: the_rest -> fist
+  | [] -> "OCaml";;
+(* function call *)
+my_favorite_language ["English";"Spanish";"French"];;
+(* - : string = "English" *)
+my_favorite_language [];;
+(* - : string = "OCaml" *)
+```
+
+```ocaml
+let rec sum arr =
+  match arr with
+  | [] -> 0
+  | head :: tail -> head + sum tail;;
+val sum : int list -> int = <fun>
+sum [1;2;3];;
+(* - : int = 6*)
+```
+
+
+
+## 3. 匿名函数
+
+```ocaml
+(fun x -> x + 1);;
+(* - : int -> int = <fun> *)
+
+(fun x -> x + 1) 7;;
+(* - : int = 8*)
+
+(* as argument *)
+List.map ~f:(fun x -> x + 1) [1;2;3];;
+(* - : int list = [2; 3; 4] *)
+
+(* put into data structure *)
+let increments = [ (fun x -> x + 1); (fun x -> x + 2)];;
+val increments : (int -> int) list = [<fun>; <fun>]
+List.map ~f:(fun g -> g 5) increments;;
+(* - : int list = [6; 7] *)
+```
+
+把两个函数放到数组中，`fun g -> g 5` 是一个函数，这个函数分别用数组中的每个函数作为参数。
+
+
+
+## 4. 多参数函数
+
+```ocaml
+let average a b =
+    (a +. b) /. 2.0;;
+(* val average: float -> float -> float = <fun> *)
+```
+
+**柯里(curried)函数**
+
+上面的 `average` 函数可以改写成下面的形式  
+
+```ocaml
+let average =
+  (fun a -> (fun b -> (a +. b) /. 2.0));;
+(* val average: float -> float -> float = <fun> *)
+```
+
+`average` 是一个单参数的函数，该函数返回一个单参数的函数，内层嵌套函数返回最终结果，这种函数被称为柯里函数(命名源自于 Haskell Curry)，`->` 具有右结合性。
+
+
+
+## 4. 递归函数
+
+OCaml 一般函数不允许递归，如果需要定义递归函数，需要 `rec` 关键字  
+
+```ocaml
+(* Fibonacci function *)
+let rec fib n = if n < 2 then n else (fib (n-1)) + (fib (n-2));;
+fib 3;; (* 3 *)
+```
+
+```ocaml
+let rec find_first_stutter list =
+  match list with
+  | [] | [_] -> None
+  | x :: y :: tail ->
+    if x = y then Some x else find_first_stutter (y::tail)
+```
+
+`[] | [_]` 称为或模式，两个模式的析取，`[]` 匹配空列表，`[_]` 匹配单元素列表。  
+
+通过 `and` 关键字使用 `let rec` 可以定义多个互相递归的函数。
+
+```ocaml
+let rec is_even x =
+  if x = 0 then true else is_odd (x - 1)
+and is_odd x =
+  if x = 0 then false else is_even (x - 1)
+```
+
+
+
+## 5. 操作符
+
+**前缀和中缀函数**  
+
+```ocaml
+Int.max 3 4 (* prefix *)
+3 + 4       (* infix *)
+```
+
+不过操作符本质上是普通的函数，只是语法上有点区别。  如果中缀操作符两边加上 `()` 就可以当作常规的前缀函数使用了。  
+
+```ocaml
+(+) 3 4;;
+List.map ~f:((+) 3) [7;8;9];;
+```
+
+如果一个函数的函数名(字符串)是从一个特殊的集合中选择的，这个函数在语法上被作为操作符来处理  
+
+```ocaml
+! $ % & * + - . / : < = > ? @ ^ | ~
+or mod lsl lsr asr land lor lxor
+```
+
+比如  
+
+```ocaml
+let (+!) (x1, y1) (x2, y2) = (x1 + x2, y1 + y2);;
+(3, 2) +! (-2, 4);;
+(* - : int * int = (1, 6) *)
+```
+
+处理包含 `*`  需要注意，可能被解释为注释。  
+
+**优先级**  
+
+注：`!...` 是以 `!` 开头的操作符
+
+|              操作符前缀              | 结合性 |
+| :----------------------------------: | :----: |
+|          `!..., ?..., ~...`          |  前缀  |
+|              `., (, [`               |        |
+|    函数应用，`ctor, assert, lazy`    | 左结合 |
+|            `-, -.`(一元)             |  前缀  |
+|  `**...`(浮点数幂), `lsl, lsr, asr`  | 左结合 |
+|          `+..., -...`(二元)          | 左结合 |
+|                 `::`                 | 右结合 |
+|       `@...`(列表连接), `^...`       | 右结合 |
+| `=..., <..., >..., |..., &..., $...` | 左结合 |
+|               `&, &&`                | 右结合 |
+|               `or, ||`               | 右结合 |
+|                 `,`                  |        |
+|               `<-, :=`               | 右结合 |
+|                 `if`                 |        |
+|                 `;`                  | 右结合 |
+
+`-` 表示负号和减法，负号优先级要小于函数应用，如果说想要传入负值作为参数，需要用括号包围负值  
+
+```ocaml
+Int.max 3 -4 
+(* Error: This expression has type int -> int
+       but an expression was expected of type int *)
+Int.max 3 (-4)
+(* - : int = 3*)
+```
+
+
+
+下面是标准库中一些有用的例子：  
+
+`List.dedup` 为删除列表中的重复元素。  由于 `List.dedup` 有 deprecated warning，所以替换为 `dedup_and_sort`
+
+```ocaml
+let (|>) x f = f x;; (* 类似于 Unix 中的管道操作 *)
+let path = "/usr/bin:/usr/local/bin:/bin:/sbin";;
+String.split ~on: ':' path
+  |> List.dedup_and_sort ~compare: String.compare 
+  |> List.iter ~f: print_endline;;
+```
+
+
+
+
+
+# 四、模块
 
 ## 1. 基本用法
 
@@ -623,7 +793,7 @@ List.optmap ...
 
 
 
-# 四、数据结构
+# 五、数据结构
 
 ## 1. 简单数据结构
 
@@ -677,42 +847,6 @@ List.map languages ~f:String.length;;
 ```ocaml
 [1;2;3] @ [4;5;6];;
 (* - : int list = [1; 2; 3; 4; 5; 6] *)
-```
-
-**模式匹配**一些简单的例子，为之后的内容做铺垫  
-
-```ocaml
-let distance (x1, y1) (x2, y2) =
-  sqrt((x1 -. x2) ** 2. +. (y1 -. y2) ** 2.);;
-val distance : float * float -> float * float -> float = <fun>
-```
-
-```ocaml
-let my_favorite_language languages =
-  match languages with
-  | first :: the_rest -> fist
-  | [] -> "OCaml";;
-(* function call *)
-my_favorite_language ["English";"Spanish";"French"];;
-(* - : string = "English" *)
-my_favorite_language [];;
-(* - : string = "OCaml" *)
-```
-
-```ocaml
-let rec sum arr =
-  match arr with
-  | [] -> 0
-  | head :: tail -> head + sum tail;;
-val sum : int list -> int = <fun>
-sum [1;2;3];;
-(* - : int = 6*)
-```
-
-```ocaml
-let (ints, strs) = List.unzip [(1, "one"); (2, "two"); (3, "three")];;
-val ints : int list = [1; 2; 3]
-val strs : string list = ["one"; "two"; "three"]
 ```
 
 
