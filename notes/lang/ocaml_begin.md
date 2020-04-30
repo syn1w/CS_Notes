@@ -11,7 +11,10 @@ sudo zypper install ocaml # SuSE
 
 之后输入 `ocaml` 命令，显示 `OCaml version 4.05.0`  
 
-## 1. 尝试 OCaml 简单的表达式
+
+
+## 1. 简单的表达式
+
 使用交互式顶层环境(interactive toplevel)或REPL(Read-Eval-Print-Loop)。`ocaml` 命令提供了一个十分基础的顶层环境，最好使用 `utop` 交互环境。  
 **安装 `utop`**
 
@@ -36,6 +39,8 @@ eval `opam env`
 (* output: - : int = 2 *)
 ```
 
+
+
 ## 2. Hello World
 
 ```ocaml
@@ -48,7 +53,23 @@ ocamlbuild hello.native
 ./hello.native
 # hello world!
 ```
+
+---
+
+`main` 函数在哪？
+
+OCaml 没有一个唯一的 `main` 函数，执行 OCaml 文件时，文件中所有语句会按照其链接顺序进行计算  
+
+在 `hello world` 程序中，`let () =` 的声明就扮演着 `main` 函数的角色。不过事实上，整个文件都会在启动时计算  
+
+`let () =` 只是一个习惯用法，确保右边的表达式返回 `unit`，这个用法很常见，`unit` 类似于 `void`，之后详细说明  
+
+---
+
+
+
 ## 3. 基础类型
+
 |   type   |                             desc                             |
 | :------: | :----------------------------------------------------------: |
 |  `int`   | 31-bit(with sign bit) signed int on 32-bit processors; 63-bit on 64-bit processors |
@@ -65,7 +86,39 @@ char 类型不支持 Unicode 或 UTF-8，需要使用 [comprehensive Unicode lib
 
 
 
-## 4. 显式类型转换
+## 4. tuple/option
+
+**(1) tuple**  
+
+`tuple` 是一个有序集合，其中值可以是不同的类型，比如  
+
+```ocaml
+let atuple = (3, "three");;
+val atuple : int * string = (3, "three")
+```
+
+使用了 `*` 符号，因为所有 `t * s` 类型对集合对应于类型 `t`  的元素集合与类型 `s` 元素集合的笛卡尔积  
+
+获取 `tuple` 中的分量(模式匹配)：
+
+```ocaml
+let (x, y) = atuple;;
+val x : int = 3
+val y : string = "three"
+```
+
+**(2) option**
+
+`option` 表示一个值可能有，也可能没有
+
+```ocaml
+let divide x y =
+  if y = 0 then None else Some(x/y);;
+```
+
+
+
+## 5. 显式类型转换
 
 上面说到 OCaml 不做任何隐式类型转换，确实需要做类型转换使用显式类型转换  
 以整数(`i`)加上一个浮点数(`f`)为例进行说明：
@@ -81,6 +134,7 @@ float i +. f;;
 ```
 
 Note: `float_of_int/float` 函数相当于 Pervasives 库提供的 `Float.of_int`  
+
 
 
 # 二、程序结构
@@ -202,6 +256,8 @@ OCaml 表达式的定义比 C 更广一些，C 有 statements 的概念，但是
 ```ocaml
 let sum_list = List.fold_left ( + ) 0
 ```
+
+
 
 ## 6. 命令式编程
 
@@ -508,7 +564,7 @@ and is_odd x =
 **前缀和中缀函数**  
 
 ```ocaml
-Int.max 3 4 (* prefix *)
+Base.Int.max 3 4 (* prefix *)
 3 + 4       (* infix *)
 ```
 
@@ -575,18 +631,502 @@ Int.max 3 (-4)
 `List.dedup` 为删除列表中的重复元素。  由于 `List.dedup` 有 deprecated warning，所以替换为 `dedup_and_sort`
 
 ```ocaml
-let (|>) x f = f x;; (* 类似于 Unix 中的管道操作 *)
+let (|>) x f = f x;; (* 类似于 Unix 中的管道操作，左结合 *)
 let path = "/usr/bin:/usr/local/bin:/bin:/sbin";;
 String.split ~on: ':' path
   |> List.dedup_and_sort ~compare: String.compare 
   |> List.iter ~f: print_endline;;
 ```
 
+```ocaml
+let (^>) x f = f x;; (* 类似于 |>，不过是右结合 *)
+```
 
 
 
+## 6. 用函数声明函数
 
-# 四、模块
+定义函数的另一种方法是使用 `function` 关键字，`function` 内置了模式匹配   
+
+```ocaml
+let some_or_zero = function
+  | Some x -> x
+  | None -> 0;;
+```
+
+等价于  
+
+```ocaml
+let some_or_zero num_opt
+  match num_opt with
+  | Some x -> x
+  | None -> 0;;
+```
+
+把不同形式的函数声明结合在一起  
+
+```ocaml
+let some_or_default default = function
+  | Some x -> x
+  | None -> default;;
+some_or_default 3 (Some 5);;  (* 5 *)
+Some_or_default 100 None;;    (* 100 *)
+```
+
+
+
+## 7. 标签参数
+
+之前有简单提到标签参数，按照名字标识一个函数参数，当然也能不写标签参数直接按照参数顺序进行传递  
+
+```ocaml
+let ratio ~num ~denom = float num /. float denom;;
+ratio ~num:3 ~denom:10;;
+ratio ~denom:10 ~num:3;;
+```
+
+OCaml 还支持标签“双关”，如果标签名和变量名相同，可以省略 `:` 后面的文本  
+
+```ocaml
+let num = 3 in
+let denom = 10 in
+ratio ~num ~denom;;
+```
+
+标签参数的作用：
+
+- 参数多的时候，按名字记参数要比位置容易
+
+- 仅从类型无法了解某个参数的含义时，可以使用标签参数  
+
+- 定义多个参数，参数可能相互混淆，可以使用标签参数
+
+  ```ocaml
+  val substr : string -> int -> int -> string
+  val substr : string -> pos:int -> len:int -> string
+  ```
+
+- 如果希望传递参数的顺序具有灵活性
+
+**高阶函数和标签**  
+
+将标签函数作为参数传入时，需要保证标签参数的顺序一致  
+
+```ocaml
+let apply_to_tuple1 f (first, second) = f ~first ~second;;
+val apply_to_tuple1 : (first:'a -> second:'b -> 'c) -> 'a * 'b -> 'c = <fun>
+let apply_to_tuple2 f (first, second) = f ~second ~first;;
+val apply_to_tuple2 : (second:'a -> first:'b -> 'c) -> 'a * 'b -> 'c = <fun>
+
+let divide ~first ~second = first / second;;
+apply_to_tuple2 divide (3, 4);;
+(* Error: This expression has type first:int -> second:int -> int
+       but an expression was expected of type second:'a -> first:'b -> 'c *)
+apply_to_tuple1 divide (3, 4);;
+(* - : int = 0 *)
+```
+
+
+
+## 8. 可选参数
+
+可选参数之前也提到过，特殊的标签参数  
+
+```ocaml
+let concat ?sep x y =
+  let sep = match sep with
+  | None -> ""
+  | Some x -> x in
+  x ^ sep ^ y;;
+(* ^ is to concat two strings *)
+
+concat "foo" "bar";;
+concat ~sep:":" "foo" "bar";;
+
+(* 可选参数的默认值 *)
+let concat ?(sep="") x y =
+  x ^ sep ^ y;;
+```
+
+可选参数本质上使用 `option` 数据结构，之后会详细介绍，如果调用者没有提供可选参数，函数会接收 None，如果调用者提供了这个参数，则会接收 `Some`  
+
+有时候需要显式传入 Some 或 None，可以使用 `?` 来传递这个参数，而不是 `~`  
+
+```ocaml
+concat ?sep:(Some ":") "foo" "bar";;
+concat ?sep:None "foo" "bar";;
+```
+
+使用可选参数会带来简洁，同时也会损失明确性。很少使用的函数不应该使用可选参数，模块内部使用的函数应该避免使用可选参数
+
+
+
+```ocaml
+let uppercase_concat ?(sep="") a b =
+  concat ~sep (String.uppercase a) b;;
+uppercase_concat "foo" "bar";; (* FOObar *)
+uppercase_concat "foo" "bar" ~sep:":";; (* FOO:bar *)
+```
+
+按照此处逻辑，`uppercase_concat` 和 `concat` 的 `sep` 默认值应该保持一致，或者采取另外一种方式  
+
+```ocaml
+let uppercase_concat ?sep a b =
+  concat ?sep (String.uppercase a) b;;
+```
+
+
+
+**标签参数和可选参数的类型推断**  
+
+```ocaml
+let numeric_deriv ~delta ~x ~y ~f =
+  let x' = x +. delta in
+  let y' = y +. delta in
+  let base = f ~x ~y in
+  let dx = (f ~x:x' ~y -. base) /. delta in
+  let dy = (f ~x ~y:y' -. base) /. delta in
+  (dx, dy);;
+val numeric_deriv :
+  delta:float ->
+  x:float -> y:float -> f:(x:float -> y:float -> float) -> float * float =
+  <fun>
+```
+
+由于标签参数可以按照任意顺序传入，原则上，`f` 的参数顺序如何选择并不是很清楚。更糟糕的是，`f` 可以取一个可选参数而不是标签参数。  
+
+OCaml 需要一些启发式的规则，编译器尽量使用标签而不是可选参数，另外选择参数在源代码中出现的顺序。  
+
+下面是 `numeric_deriv` 的另一个版本，不同的  `f` 调用会按不同的顺序列出参数：
+
+```ocaml
+let numeric_deriv ~delta ~x ~y ~f =
+  let x' = x +. delta in
+  let y' = y +. delta in
+  let base = f ~x ~y in
+  let dx = (f ~y ~x:x' -. base) /. delta in
+  let dy = (f ~x ~y:y' -. base) /. delta in
+  (dx, dy);;
+(* Error: This function is applied to arguments
+in an order different from other calls.
+This is only allowed when the real type is known. *)
+```
+
+正如报错信息，需要提供显式类型信息，指出会以不同的参数顺序调用 `f`
+
+```ocaml
+let numeric_deriv ~delta ~x ~y ~(f: x:float -> y:float -> float) =
+  let x' = x +. delta in
+  let y' = y +. delta in
+  let base = f ~x ~y in
+  let dx = (f ~y ~x:x' -. base) /. delta in
+  let dy = (f ~x ~y:y' -. base) /. delta in
+  (dx, dy);;
+```
+
+
+
+**可选参数与部分应用**
+
+```ocaml
+let colon_concat = concat ~sep:":";
+```
+
+如果只是部分应用第一个参数会发生什么？
+
+```ocaml
+let prepend_pound = concat "#";;
+prepend_pound "a BASH comment";; (* # a BASH comment *)
+```
+
+向 `prepend_pound` 传入 `~sep` 参数会报错，因为 `?sep` 被“擦除”了。如果可选参数后面第一个位置上定义的参数一旦传入，可选参数就会被擦除，如果可选参数后面没有参数，可选参数就不会被擦除，不过会导致编译器警告  
+
+如果 `concat` 把可选参数定义到第二个位置上：
+
+```ocaml
+let concat x ?(sep="") y = x ^ sep ^ y;;
+let prepend_pound = concat "#";;
+prepend_pound "a BASH comment" ~sep:"---";;
+```
+
+
+
+# 四、list
+
+## 1. 基础
+
+注：在 `utop` 中自测得使用 `open Base;;` 或使用 `Base.List` 进行操作，具体原因之后探索  
+
+`list` 是相同类型元素构成的一个不可变的有序序列，用`[]`  来生成，list 对应的数据结构是**链表**
+
+```ocaml
+let languages = ["OCaml";"Perl";"C"]
+val languages : string list = ["OCaml";"Perl";"C"]
+```
+
+Core 提供了 List 模块，其中有大量用来处理列表的函数，比如  
+
+```ocaml
+List.length languages;;
+(* - : int = 3 *)
+
+List.map languages ~f:String.length;;
+(* - : int list = [5; 4; 1] *)
+```
+
+用 `::` (语法糖，且 `::` 具有右结合性)构造 `list`
+
+```ocaml
+"French" :: "Spanish" :: languages;;
+(* - : string list = ["French"; "Spanish"; "OCaml"; "Perl"; "C"] *)
+```
+
+`::` 只能在 `list` 前增加一个元素，列表以 `[]`(空列表)结束，另外还有一个列表连接操作符 `@`，但是 `@` 不是常数时间操作，和第一个列表长度成正比。  
+
+```ocaml
+[1;2;3] @ [4;5;6];;
+(* - : int list = [1; 2; 3; 4; 5; 6] *)
+```
+
+`[]` 空表是多态的，可以用于任意类型的元素。  
+
+```ocaml
+let empty = [];; (* val empty : 'a list = [] *)
+```
+
+
+
+## 2. list 与模式匹配
+
+**使用模式从列表中抽取数据**  
+
+```ocaml
+let rec sum l =
+  match l with
+  | [] -> 0
+  | head :: tail -> head + sum tail
+```
+
+如果想要删除某个字面量元素  
+
+```ocaml
+let rec drop_zero l = 
+  match l with
+  | [] -> []
+  | 0 :: tail -> drop_zero tail
+  | head :: tail -> head :: drop_zero tail
+```
+
+
+
+**模式匹配的局限性(好处)**  
+
+模式匹配并不能表述任意条件，模式仅可以描述一个数据结构的布局，甚至包含字面量，不过仅此而已。比如模式可以检测一个列表是否包含两个元素，但是不能检查两个元素是否相等。  
+
+不过模式表示一个有限的条件集合，实际上可以在编译器中更好地支持模式。比如 `match` 语句的高效率以及检测匹配错误的能力(冗余、完备性检查等)。  
+
+
+
+## 3. 使用 List 模块
+
+绘制字符表格例子  
+
+```ocaml
+printf "%s\n" 
+  (render_table 
+    ["language"; "architect"; "first release"]
+    [ ["Lisp"; "John McCarthy";  "1958"];
+      ["C";    "Dennis Ritchie"; "1969"];
+      ["ML";   "Robin Milner";   "1973"];
+      ["OCaml";"Xavier Leroy";   "1996"];
+    ]);;
+```
+
+需要计算最大列宽，直接使用代码来实现很费功夫，可以使用 `List` 模块的三个函数(`map, map2_exn, fold`)来很简洁地完成这些工作：  
+
+`List.map` 用一个函数 `f` 来对列表地每个元素进行映射转换，返回一个新的列表  
+
+`List.map2_exn` 取两个列表和一个函数作为参数，用于结合这两个列表，`_exn` 表示会抛出异常  
+
+`List.fold` 取三个参数，要处理的列表，累加器初始值，以及更新累加器函数  
+
+```ocaml
+List.map ~f:String.length ["hello"; "world!"];; (* [5; 6] *)
+List.map2_exn ~f:Int.max [1;2;3] [3;2;1];;      (* [3; 2; 3] *)
+List.fold ~init: 0 ~f:(+) [1;2;3;4];;           (* 10 *)
+List.fold ~init:[] 
+  ~f:(fun list x -> x :: list) [1;2;3;4];;      (* [4;3;2;1] *)
+```
+
+结合三个函数，计算最大列宽  
+
+```ocaml
+(* calc max widths *)
+let max_widths header rows =
+  let lengths l = List.map ~f:String.length l in
+  List.fold rows
+    ~init:(lengths header)
+    ~f:(fun acc row -> List.map2_exn ~f:Int.max acc (lengths row));;
+
+(* render sep *)
+let render_separator widths =
+  let pieces = List.map widths
+    ~f:(fun w -> String.make(w + 2) '-') in
+    "|" ^ String.concat ~sep:"+" pieces ^ "|";;
+(*render_separator [3;6;2];;*) (* "|-----+--------+----|" *)
+
+(* pad content *)
+let pad s length =
+  " " ^ s ^ String.make (length - String.length s+1) ' ';;
+(*pad "hello" 10*)    (* " hello      " *)
+
+(* render row *)
+let render_row row widths =
+  let padded = List.map2_exn row widths ~f:pad in
+  "|" ^ String.concat ~sep:"|" padded ^ "|";;
+  
+let render_table header rows =
+  let widths = max_widths header rows in
+  String.concat ~sep:"\n"
+    (render_row header widths
+      :: render_separator widths
+      :: List.map rows ~f:(fun row -> render_row row widths)
+    );;
+```
+
+`^` 是连接字符串操作，不过在拼接大型字符串会有性能问题，每次拼接都会分配一个新的字符串  
+
+
+
+**List 模块更多有用的函数**  
+
+[List](https://ocaml.janestreet.com/ocaml-core/109.20.00/doc/core/List.html)  
+
+**(1) `reduce`**  
+
+`reduce` 是简化版的 `fold` 函数，不需要指定 `init`，累加函数必须消费和生产和列表元素类型相同的值  
+
+返回的是 `option` 结果  
+
+```ocaml
+List.reduce ~f:(+) [1;2;3;4;5];; (* Some 15 *)
+List.reduce ~f:(+) [];;          (* int option = None *)
+```
+
+**(2) `filter`, `filter_map`**   
+
+```ocaml
+List.filter ~f:(fun x -> x mod 2 = 0) [1;2;3;4;5];; (* [2;4] *)
+List.filter_map (Sys.ls_dir ".")
+  ~f:(fun fname -> 
+    match String.rsplit2 ~on:'.' fname with
+    | None | Some ("",_) -> None
+    | Some (_,ext) -> Some ext)
+    |> List.dedup;;
+```
+
+**(3) `partition_tf`**  
+
+对列表元素计算一个布尔条件，并返回两个列表  
+
+```ocaml
+let is_ocaml_source s =
+  match String.rsplit2 s ~on:'.' with
+  | Some (_,("ml"|"mli")) -> true
+  | _ -> false;;
+let (ml, other) =
+  List.partition_tf (Sys.ls_dir ".") ~f:is_ocaml_source;;
+```
+
+**(4) `append/concat`**
+
+```ocaml
+List.append [1;2;3] [4;5;6];; (* [1;2;3;4;5;6] *)
+(* <=> *)
+[1;2;3] @ [4;5;6];;
+
+List.concat [[1;2];[3;4;5];[6];[]];; (* [1;2;3;4;5;6] *)
+```
+
+
+
+## 4. 尾递归 
+
+```ocaml
+let rec length = function
+  | [] -> 0
+  | _ :: tail -> 1 + length tail;;
+length (make_list 1000_0000);;
+```
+
+如果对特别大的 list 调用 `length` 函数，会造成递归过多导致栈溢出，可以使用尾递归的方式进行计算  
+
+```ocaml
+let rec lengthv2 l n =
+  match l with
+  | [] -> n
+  | _ :: tail -> lengthv2 tail (n+1);;
+```
+
+
+
+## 5. 更简洁更快速
+
+删除重复的连续元素  
+
+```ocaml
+let rec destutter list =
+  match list with
+  | [] -> []
+  | [hd] -> [hd]
+  | hd :: hd' :: tl -> 
+    | if hd = hd' then destutter (hd' :: tl)
+      else hd :: destutter(hd' :: tl);;
+```
+
+首先考虑效率  `[hd] -> [hd]` 实际会分配一个新的列表元素，实际上，它应该只返回匹配的列表，这里可以使用  `as` 模式来减少分配，使用 Or 模式来合并前两种情况   
+
+可以使用 `function` 来减少显式使用 `match`   
+
+```ocaml
+let rec destutter = function
+  | [] | [_] as l -> l
+  | hd :: hd' :: tl -> 
+    | if hd = hd' then destutter (hd' :: tl)
+      else hd :: destutter(hd' :: tl);;
+```
+
+使用 `when` 子句为模式增加额外的前置条件  
+
+```ocaml
+let rec destutter = function
+  | [] | [_] as l -> l
+  | hd :: (hd' :: _ as tl) when hd = hd' -> destutter tl
+  | hd :: tl -> hd :: destutter tl
+```
+
+
+
+---
+
+**多态比较**
+
+OCaml 的 `=` 操作符允许我们对不同类型进行比较，查看 `=` 的类型  
+
+```ocaml
+(=);;
+(* - : 'a -> 'a -> bool = <fun> *) 
+```
+
+---
+
+
+
+`when` 子句有一些缺点，模式匹配一旦能力增强，有些东西就会丢失，比如检查 `match` 的完备性等等  
+
+
+
+# 五、模块
 
 ## 1. 基本用法
 
@@ -682,6 +1222,8 @@ val years : date -> float
 type date = private { ... }
 ```
 
+
+
 ## 4. 子模块
 
 `example.ml` 文件本身可以隐式代表 `Example` 模块，一个给定的模块也可以在一个文件中显式定义，成为当前模块的一个子模块。  
@@ -765,106 +1307,180 @@ end
 
 
 
-## 6. 模块实际的例子
+## 6. 单文件程序
+
+下面的程序是从标准输入获取行，构造一个关联列表(`line -> freq`)。然后通过 `|>` 操作符按照频度对列表进行排序，找出列表前 10 的元素，然后迭代 10 个元素进行输出  
 
 ```ocaml
-module M = List;; (* type-level module aliases*)
-```
+(* freq.ml *)
+open Core
 
-模块扩展(原文是包含，感觉使用 extension 更准确)，对一个已有模块来扩充函数
-
-```ocaml
-module List = struct
-  include List
-  let rec optmap f = function
-  | [] -> []
-  | head :: tail ->
-    match f head with
-      | None -> optmap f tail
-      | Some x -> x :: optmap f tail
-```
-
-创建了  `Extensions.List` 模块，这个模块有标准 `List` 模块所有的东西，加上一个新的 `optmap` 函数，要覆盖默认的 `List` 模块所要做的是在 `ml` 文件的开头  
-
-```ocaml
-open Extensions
-List.optmap ...
-```
+let build_counts () =
+  In_channel.fold_lines In_channel.stdin ~init:[] ~f:(fun counts line ->
+    let count =
+      match List.Assoc.find counts (=) line with
+      | None -> 0
+      | Some x -> x
+    in
+    List.Assoc.add counts (=) line (count + 1)
+  )
 
 
-
-# 五、数据结构
-
-## 1. 简单数据结构
-
-**(1) tuple**  
-
-`tuple` 是一个有序集合，其中值可以是不同的类型，比如  
-
-```ocaml
-let atuple = (3, "three");;
-val atuple : int * string = (3, "three")
-```
-
-使用了 `*` 符号，因为所有 `t * s` 类型对集合对应于类型 `t`  的元素集合与类型 `s` 元素集合的笛卡尔积  
-
-获取 `tuple` 中的分量(模式匹配)：
-
-```ocaml
-let (x, y) = atuple;;
-val x : int = 3
-val y : string = "three"
-```
-
-**(2) list**
-
-`list` 是可以保存任意数目相同类型的元素，比如  
-
-```ocaml
-let languages = ["OCaml";"Perl";"C"]
-val languages : string list = ["OCaml";"Perl";"C"]
-```
-
-Core 提供了 List 模块，其中有大量用来处理列表的函数，比如  
-
-```ocaml
-List.length languages;;
-(* - : int = 3 *)
-
-List.map languages ~f:String.length;;
-(* - : int list = [5; 4; 1] *)
-```
-
-用 `::` (语法糖，且 `::` 具有右结合性)构造 `list`
-
-```ocaml
-"French" :: "Spanish" :: languages;;
-(* - : string list = ["French"; "Spanish"; "OCaml"; "Perl"; "C"] *)
-```
-
-`::` 只能在 `list` 前增加一个元素，列表以 `[]`(空列表)结束，另外还有一个列表连接操作符 `@`，但是 `@` 不是常数时间操作，和第一个列表长度成正比。  
-
-```ocaml
-[1;2;3] @ [4;5;6];;
-(* - : int list = [1; 2; 3; 4; 5; 6] *)
+let () = build_counts ()
+  |> List.sort ~compare:(fun (_,x) (_,y) -> Base.Int.descending x y)
+  |> (fun l -> List.take l 10)
+  |> List.iter ~f:(fun (line, count) -> printf "%3d: %s\n" count line)
 ```
 
 
 
-**(3) option**
+进行构建  
 
-`option` 表示一个值可能有，也可能没有
+```sh
+ocamlc freq.ml -o freq.byte
+# File "freq.ml", line 1, characters 5-9:
+# Error: Unbound module Core
+```
+
+但是出现了编译错误，无法找到 `Core` 库，在没有使用 `Core` 或其他外部库的情况下，可以使用  `ocamlc` 进行构建二进制程序  
+
+这里需要找到 `Core` 库并链接 `Core` 库  
 
 ```ocaml
-let divide x y =
-  if y = 0 then None else Some(x/y);;
+ocamlfind ocamlc -linkpkg -thread -package core freq.ml -o freq.byte
+```
+
+对于单文件程序这样就可以了，更复杂的项目需要一个 `ocamlbuild` 来协调构建过程，之后进行说明，现在使用 `ocamlbuild` 一个简单的包装器就可以完成构建，叫做 `corebuild`  
+
+```ocaml
+corebuild freq.byte       (* byte code *)
+corebuild freq.native     (* executable *)
 ```
 
 
 
-## 2. 可变数据结构
+---
 
-1.8 中提到的数组 `Array` 以及带有 `mutable` 的字段的 `record`
+**byte code and native code**
+
+OCaml 附带了两个编译器，`ocamlc` byte code 和 `ocamlopt` naitve code 编译器，用 `ocamlc` 编译的程序由一个虚拟机进行解释  
+
+除了性能之外，还有几点需要注意：  
+
+- 字节码编译器可以在更多体系结构上使用，OCaml 调试工具只能处理字节码(不过GDB确实能够处理 native code)
+- 运行字节码通常需要安装 OCaml，不过也可以通过 `-custom` 编译器标志，也可以用一个运动时系统构建字节码程序
+- 产品可执行程序一般当作原生码来构建，不过有时候也可以使用字节码来构建
+
+---
+
+
+
+## 7. 多文件程序和模块
+
+之前的程序使用 list 来记录字符串的频数，处理一个文件的时间复杂度类似于是文件行数的二次方，类似于C++ 的 `std::list<std::pair<std::string, std::size_t>`，接下来确定接口然后重构为更高效的实现  
+
+首先将关键功能抽取到一个单独的模块中  
+
+```ocaml
+(* counter.ml *)
+open Core
+
+let touch table str =
+  let count = 
+    match List.Assoc.find table (=) str with
+    | None -> 0
+    | Some x -> x
+  in
+  List.Assoc.add table (=) str (count + 1)
+```
+
+文件 `counter.ml` 将被编译为一个名为 `Counter` 的模块，模块名为文件名首字母大写  
+
+现在重写 `freq.ml`
+
+```ocaml
+(* freq.ml *)
+open Core
+
+let build_counts () =
+  In_channel.fold_lines In_channel.stdin ~init:[] ~f:Counter.touch
+
+let () = build_counts ()
+  |> List.sort ~compare:(fun (_,x) (_,y) -> Base.Int.descending x y)
+  |> (fun l -> List.take l 10)
+  |> List.iter ~f:(fun (line, count) -> printf "%3d: %s\n" count line)
+```
+
+
+
+## 8. 签名和抽象类型
+
+模块的实现细节可以通过接口(interface，在 OCaml 中 interface/signature/module type 会交替使用)来隐藏，类似于在头文件中进行声明，`filename.ml` 定义的模块会受文件 `filename.mli` 中的签名约束  
+
+也可以使用 `corebuild counter.inferred.mli` 生成 `mli` 文件  
+
+```ocaml
+(* counter.inferred.mli *)
+open Core
+val touch :
+  ('a, int) Base__List.Assoc.t -> 'a -> ('a, int) Base__List.Assoc.t
+  
+(* counter.mli *)
+open Core
+val touch :
+  ('a, int) Core.List.Assoc.t -> 'a -> ('a -> int) Core.List.Assoc.t
+```
+
+
+
+接下来进行重构，频数的实现为关联列表，我们需要在接口中隐藏这一点  
+
+```ocaml
+(* counter.mli *)
+(** doc comment *)
+(** table *)
+type t
+
+(** empty table *)
+val empty : t
+
+(* add freq count of the string *)
+val touch : t -> string -> t
+
+(* interface table to_list*)
+val to_list : t -> (string * int) list
+
+(* counter.ml *)
+open Core
+
+let build_counts () =
+  In_channel.fold_lines In_channel.stdin ~init:Counter.empty ~f:Counter.touch
+
+let () = 
+  build_counts ()
+  |> Counter.to_list
+  |> List.sort ~compare:(fun (_,x) (_,y) -> Base.Int.descending x y)
+  |> (fun l -> List.take l 10)
+  |> List.iter ~f:(fun (line, count) -> printf "%3d: %s\n" count line)
+```
+
+接下来换成更高效的数据结构  
+
+```ocaml
+(* counter.ml *)
+type t = int String.Map.t
+let empty = String.Map.empty
+let to_list t = Map.to_alist t
+let touch t s =
+  let count =
+    match Map.find t s with
+    | None -> 0
+    | Some x -> x
+  in
+  Map.add t ~key:s ~data:(count + 1)
+```
+
+TODO: 不过上述代码因为类型原因未通过编译，之后填坑  
 
 
 
