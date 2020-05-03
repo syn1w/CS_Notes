@@ -1280,6 +1280,38 @@ end
 
 
 
+把前面的例子进行抽象，模块的声明的基本结构  
+
+```ocaml
+module <name> : <signature> = <implementation>
+
+module <name> : sig
+  type t
+  (* val ... *)
+end = struct
+  type t
+  (* let ... impl *)
+end
+```
+
+还可以采取不同的写法  
+
+```ocaml
+module type <name> = sig
+  (* sig *)
+  type t
+  (* val ... *)
+end
+
+module type <name> = struct
+  (* impl *)
+  type t = ...
+  (* let ... *)
+end
+```
+
+
+
 ## 5. Functors
 
 声明 Functors:
@@ -1453,6 +1485,21 @@ val to_list : t -> (string * int) list
 (* counter.ml *)
 open Core
 
+type t = (string * int) list
+
+let empty = []
+
+let to_list x = x
+
+let touch t s =
+  let count =
+    match List.Assoc.find t (=) s with
+    | None -> 0
+    | Some x -> x
+  in
+  List.Assoc.add t s (count + 1)
+
+(* freq.ml *)
 let build_counts () =
   In_channel.fold_lines In_channel.stdin ~init:Counter.empty ~f:Counter.touch
 
@@ -1481,6 +1528,150 @@ let touch t s =
 ```
 
 TODO: 不过上述代码因为类型原因未通过编译，之后填坑  
+
+
+
+## 9. 签名中的具体类型
+
+在接口中增加具体类型，比如在 `Counter` 模块增加 `median` 函数，返回频数的中位数  
+
+```ocaml
+(* counter.mli *)
+val median = | Median of string
+             | Before_and_after of string * string
+
+val median : t -> median
+
+(* counter.ml *)
+type median = | Median of string
+               | Before_and_after of string * string
+
+let median t =
+  let sorted_strings = List.sort t
+    ~compare:(fun (_,x) (_,y) -> Int.descending x y)
+  in
+  let len = List.length sorted_strings in
+  if len = 0 then failwith "median: empty frequency count";
+  let nth n = fst (List.nth_exn sorted_strings n) in
+  if len mod 2 = 1
+  then Median (nth (len/2))
+  else Before_and_after (nth (len/2 - 1), nth (len/2))
+```
+
+
+
+## 10. `open`
+
+`open` 会将一个模块的所有内容添加到一个环境中  
+
+`open` 的建议：
+
+- 尽可能少在模块的顶层 `open` 模块，通常只 `open` 那些专门这样设计的模块
+
+- 如果确实要 `open`，最好采用局部打开
+
+  ```ocaml
+  let average x y =
+    let open Int64 in
+    x + y / of_int 2
+    
+  (* or *)
+  let average x y =
+    Int64.(x + y / of_int 2)
+  ```
+
+- 局部打开的另一种方法是重新绑定一个模块名  
+
+  ```ocaml
+  let print_median m =
+    match m with
+    | Counter.Median string -> printf "True median:\n %s\n" string
+    | Counter.Before_and_after (before, after) -> 
+      printf "Before and after median: \n %s\n %s\n" before after
+      
+  (* -> *)
+  
+  let print_median m =
+    let module C = Counter in
+    match m with
+    | C.Median string -> printf "True median:\n %s\n" string
+    | C.Before_and_after (before, after) -> 
+      printf "Before and after median: \n %s\n %s\n" before after
+  ```
+
+
+
+## 11. `include`
+
+考虑下面的例子  
+
+```ocaml
+module Interval = struct
+type t = | Interval of int * int
+         | Empty
+
+let create low high =
+  if high < low then Empty else Interval (low, high) end;;
+```
+
+模块 `Interval` 只有 `create` 函数用来创建 `Interval.t`，现在我们想要在已有的 `Interval` 模块增加实现一个 `contains` 函数，判断给定元素是否在区间内，可以使用  `include`，可以实现类似于其他编程语言中的 `extend`  
+
+```ocaml
+module Extend_interval = struct
+  include Interval
+  let contains t x =
+    match t with
+    | Empty -> false
+    | Interval (low, high) -> x >= low && x <= high end;;
+
+Extend_interval.contains (Extend_interval.create 3 10) 4;;
+```
+
+这个功能更可能给标准模块或第三方模块进行扩展，比如给 `List` 模块进行扩展  
+
+```ocaml
+(* ext_list.mli *)
+open Core
+
+include (module type of List)
+
+val intersperse : 'a list -> 'a -> 'a list
+
+(* ext_list.ml *)
+open Core
+
+let rec intersperse list el
+  match list with
+  | [] | [_] -> list
+  | x :: y :: tail -> x :: el :: intersperse (y :: tail) el
+  
+include List
+```
+
+可以使用 `Ext_list` 来代替 `List` 模块，创建 `Common` 模块，然后在 `Common` 模块中 `module List = Ext_list`，然后在其他的文件中先 `open Core`，再 `open Ext_list`，这样 `List` 就自动指示 `Ext_list`  
+
+
+
+## 12. 模块的常见错误
+
+- 签名和实现类型不匹配
+
+- 缺少定义
+
+- 类型定义不匹配
+- 循环依赖
+
+
+
+## 13. 基于模块的设计
+
+- 尽量少地提供具体类型(尽量保持为抽象类型)，提供模块的灵活性
+- 写模块接口要清晰
+- 创建统一的接口
+  - 几乎面向每一个类型有一个模块，而且模块的主要类型为 `t`
+  - 把 `t` 放在最前面
+  - 遵守命名规范，比如抛出异常的函数以 `_exn` 结尾，否则返回 `option` 或 `Or_error.t` 等等 
+- 接口先于实现
 
 
 
