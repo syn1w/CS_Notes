@@ -1675,6 +1675,390 @@ include List
 
 
 
+# 六、record
+
+`record`，类似于 `struct`
+
+```ocaml
+type <record-name> = {
+  <field> : <type>;
+  (* ... *)
+};;
+```
+
+```ocaml
+type host_info = {
+  hostname : string;
+  os_name : string;
+  cpu_arch : string;
+  timestamp : Time.t;
+};;
+```
+
+```ocaml
+(* utop *)
+#require "core_extended";;
+open Core_extented
+
+let my_host =
+  let sh = Shell.sh_one_line_exn in {
+    hostname = sh "hostname";
+    os_name = sh "uname -s";
+    cpu_arch = sh "uname -p";
+    timestamp = Time.now();
+  };;
+  
+(* {hostname = "..."; os_name = "Linux"; cpu_arch = "x86_64";
+   timestamp = 2020-05-03 15:54:56.706941+08:00} *)
+```
+
+```ocaml
+(* access record member *)
+my_host.cpu_arch;;
+(* "x86_64" *)
+```
+
+**多态化声明 `record`**
+
+```ocaml
+type 'a timestamped = { item: 'a; time: Time.t };;
+let first_timestamped list =
+  List.reduce list ~f: (fun a b -> if a.time < b.time then a else b)
+```
+
+
+
+## 1. 模式和完备性
+
+从 `record` 得到信息，还有一种方法是模式匹配  
+
+```ocaml
+let host_info_to_string {
+  hostname = h; os_name = os;
+  cpu_arch = c; timestamp = ts;
+} = 
+sprintf "%s (%s / %s, on %s)" h os c (Time.to_string ts);;
+
+host_info_to_string my_host;;
+```
+
+如果在 `record host_info` 增加一个字段，上述程序仍能工作，但是这时候需要一个警告信息，在 `utop` 中使用 `# warning "+9"`   来打开警告  
+
+如果确定是不完备的，可以使用 `_` 来禁用警告  
+
+```ocaml
+let host_info_to_string {
+  hostname = h; os_name = os;
+  cpu_arch = c; timestamp = ts; _
+} = 
+sprintf "%s (%s / %s, on %s)" h os c (Time.to_string ts);;
+```
+
+
+
+## 2. 字段双关
+
+当变量名与字段名恰好相同时，OCaml 提供了方便的语法快捷方式  
+
+使用字段双关来构建 record  
+
+```ocaml
+let host_info_to_string {
+  hostname; os_name;
+  cpu_arch; timestamp; _
+} = 
+sprintf "%s (%s / %s, on %s)" hostname os_name
+  cpu_arch (Time.to_string time_stamp);;
+  
+  
+let my_host =
+  let sh cmd = Shell.sh_one_line_exn cmd in
+  let hostname = sh "hostname" in
+  (* ... *)
+  let timestamp = Time.now () in {
+    hostname; os_name; cpu_arch; timestamp
+  };;
+```
+
+编写构建 record 的函数时，同时利用字段双关和标签双关  
+
+```ocaml
+let create_host_info ~hostname ~os_name ~cpu_arch = {
+  os_name; cpu_arch; hostname = String.lowercase hostname;
+  timestamp = Time.now ()
+};;
+```
+
+
+
+## 3. 重用字段名
+
+不同的记录使用相同的字段名可能会出问题  
+
+```ocaml
+type log_entry = { 
+  session_id: string;
+  time: Time.t;
+  important: bool;
+  message: string;
+}
+type heartbeat = {
+  session_id: string;
+  time: Time.t;
+  status_message: string;
+}
+type logon = {
+  session_id: string;
+  time: Time.t;
+  user: string;
+  credentials: string;
+};;
+```
+
+如果编写一个函数获取 `session_id`，该函数会是什么类型呢？  
+
+```ocaml
+let get_session_id t = t.session_id;;
+(* val get_session_id : logon -> string = <fun> *)
+```
+
+在这种情况下，OCaml 选择了这个记录字段的最新定义，也就是 `logon`  
+
+使用类型标注来定义函数  
+
+```ocaml
+let get_heartbeat_session_id (t:heartbeat) = t.session_id;;
+(* val get_heartbeat_session_id : heartbeat -> string = <fun> *)
+```
+
+尽管可以使用类型标注，不过这种二义性还是让人困惑，从 `heartbeat` 中获取 `session_id` 和 `status`  
+
+```ocaml
+let status_and_session t = (t.status_message, t.session_id);;
+(* val status_and_session : heartbeat -> string * string = <fun> *)
+
+let session_and_status t = (t.session_id, t.status_message);;
+(* Characters 44-58:
+Error: The record type logon has no field status_message *)
+
+let session_and_status (t:heartbeat) = (t.session_id, t.status_message);;
+(* val session_and_status : heartbeat -> string * string = <fun> *)
+```
+
+第一个没有类型标注可以成功编译，但是第二个没有类型标注就失败了，第一个类型先考虑 `status_message`，而第二个会先考虑 `session_id`  
+
+可以使用模块类型避免这种二义性  
+
+```ocaml
+module Log_entry = struct
+  type t = {
+    session_id: string;
+    time: Time.t;
+    important: bool;
+    message: string;
+  }
+end
+module Heartbeat = struct
+  type t = {
+    session_id: string;
+    time: Time.t;
+    status_message: string;
+  }
+end
+module Logon = struct
+  type t = {
+    session_id: string;
+    time: Time.t;
+    user: string;
+    credentials: string;
+  }
+end;;
+
+(*module Log_entry :
+  sig
+    type t = {
+      session_id : string;
+      time : Time.t;
+      important : bool;
+      message : string;
+    }
+  end
+module Heartbeat :
+  sig
+    type t = { session_id : string; time : Time.t; status_message : string; }
+  end
+module Logon :
+  sig
+    type t = {
+      session_id : string;
+      time : Time.t;
+      user : string;
+      credentials : string;
+    }
+  end
+*)
+```
+
+创建日志记录  
+
+```ocaml
+let create_log_entry ~session_id ~important ~message = {
+  Log_entry.time = Time.now (); Log_entry.session_id;
+  Log_entry.important; Log_entry.message
+};;
+
+(* or *)
+let create_log_entry ~session_id ~important ~message = {
+  Log_entry.
+  time = Time.now (); session_id;
+  important; message
+};;
+```
+
+访问字段  
+
+```ocaml
+let is_important t = t.Log_entry.important;;
+```
+
+
+
+## 4. 函数式更新
+
+当我们需要改变 `record`，原 `record` 和 新的 `record` 只有一两个字段不一样，其他都相同，可以使用 `create` 函数来构造一个新的 `record`，但是这样做比较繁琐，使用 OCaml 的函数式更新(*functional update*)语法，更简洁地达到这个目的  
+
+```ocaml
+{
+  <record> with 
+    <field> = <value>
+    <field> = <value>
+    ...
+}
+```
+
+具体的例子  
+
+```ocaml
+type client_info = {
+  addr: Unix.Inet_addr.t;
+  port: int;
+  user: string;
+  credentials: string;
+  last_heartbeat_time: Time.t;
+};;
+
+let register_heartbeat t hb = {
+  t with last_heartbeat_time = hb.Heartbeat.time
+};;
+```
+
+*functional update* 允许代码独立于记录中不变的字段，但是也有一些缺点，如果改变了类型定义，增加一些字段，类型系统不会让你重新考虑是否修改代码来处理新增加的字段  
+
+
+
+## 5. 可变字段
+
+OCaml 中 `record` 中的字段默认是不可变的，不过可以把字段声明为可变字段  
+
+```ocaml
+type client_info = {
+  addr: Unix.Inet_addr.t;
+  port: int;
+  user: string;
+  credentials: string;
+  mutable last_heartbeat_time: Time.t;
+};;
+```
+
+`<-` 操作符用来设置可变字段  
+
+```ocaml
+let register_heartbeat t hb = {
+  t.last_heartbeat_time <- hb.Heartbeat.time
+};;
+```
+
+
+
+## 6. 字段作为一等公民
+
+```ocaml
+let get_users logons =
+  List.dedup (List.map logons ~f:(fun x -> x.Logon.user))
+```
+
+上述函数使用 `(fun x -> x.Logon.user)` 访问 `user` 字段，如果可以自动生成访问函数会很方便  
+
+Core 库带有的 `fieldslib` 扩展就可以做到  
+
+记录声明的末尾添加 `with fields` 标注，会使这个 `fieldslib` 扩展应用到给定的类型声明  
+
+```ocaml
+module Logon = struct
+    type t =
+      { session_id: string;
+        time: Time.t;
+        user: string;
+        credentials: string;
+      }
+    with fields
+  end;;
+
+(* module Logon :
+  sig type t = {
+    session_id : string;
+    time : Time.t;
+    user : string;
+    credentials : string;
+  }
+  val credentials : t -> string
+  val user : t -> string
+  val time : t -> Time.t
+  val session_id : t -> string
+  module Fields :
+    sig
+      val names : string list
+      val credentials :
+        ([< `Read | `Set_and_create ], t, string) Field.t_with_perm
+      val user :
+        ([< `Read | `Set_and_create ], t, string) Field.t_with_perm
+      val time :
+        ([< `Read | `Set_and_create ], t, Time.t) Field.t_with_perm
+      val session_id : ([< `Read | `Set_and_create ], t, string) Field.t_with_perm
+      [ ... many definitions omitted ... ]
+    end
+end *)
+```
+
+会自动生成很多输出，因为 `fieldslib` 产生了一大堆处理记录字段的辅助函数   
+
+首先要提及的函数就是 `Logon.user`，用以从一个 `logon` 消息中提取 `user` 字段：
+
+```ocaml
+let get_users logons =
+  List.dedup (List.map logons ~f:Logon.user);;
+```
+
+除了生成段访问器函数，`fieldslib` 还创建了一个名为 `Fields` 的子模块，此模块包含了每一个字段的一等公民表示，形式是一个类型为 `Field.t` 的值。`Field` 模块提供了下列函数：  
+
+```ocaml
+Field.name
+Field.get
+Field.fset   (* functional update field*)
+Field.setter (* return None if field is non-mutable, else return Some f *)
+```
+
+`Field.t` 有两个类型参数：第一参数是记录类型，第二个是相关字段的类型。因此，`Logon.Fields.session_id` 的类型是`（Logon.t, string） Field.t`，而 `Logon.Fields.time` 的类型是 `(Logon.t, Time.t) Field.t`。因此，如果你对 `Logon.Fields.user` 调用 `Field.get`，将会得到一个从 `Logon.t` 中提取 `user` 字段的函数：
+
+```ocaml
+Field.get Logon.Fields.user;;
+(* - : Logon.t -> string = <fun> *)
+```
+
+
+
+
+
 # 附录A references
 
 https://ocaml.org/learn/tutorials/index.zh.html  
