@@ -1675,9 +1675,9 @@ include List
 
 
 
-# 六、record
+# 六、记录
 
-`record`，类似于 `struct`
+记录(`record`)，类似于 `struct`
 
 ```ocaml
 type <record-name> = {
@@ -2054,6 +2054,528 @@ Field.setter (* return None if field is non-mutable, else return Some f *)
 Field.get Logon.Fields.user;;
 (* - : Logon.t -> string = <fun> *)
 ```
+
+
+
+# 七、变体
+
+变体(`variant`)
+
+```ocaml
+type <variant_name> = 
+  | <Tag> [of <type> [ * <type> ]... ]
+  | <Tag> [of <type> [ * <type> ]... ]
+  | ...
+```
+
+注意变体的首字母必须大写，例如：  
+
+```ocaml
+type basic_color =
+  | Black | Red | Green | Yellow | Blue | Magenta | Cyan | White;;
+Cyan;;
+(* - : basic_color = Cyan *)
+[Blue; Magenta; Red];;
+(* - : basic_color list = [Blue; Magenta; Red] *)
+```
+
+和模式匹配一起使用  
+
+```ocaml
+let basic_color_to_int = function
+  | Black -> 0 | Red -> 1     | Green -> 2 | Yellow -> 3
+  | Blue -> 4  | Magenta -> 5 | Cyan -> 6  | White -> 7;;
+  
+open Core;;
+List.map ~f:basic_color_to_int [Blue; Red];;
+```
+
+改变终端输出的颜色  
+
+```ocaml
+let color_by_number number text =
+  sprintf "\027[38;5;%dm%s\027[0m" number text;;
+
+let blue = color_by_number (basic_color_to_int Blue) "Blue";;
+printf "%s\n" blue;;
+```
+
+`basic_color` 都是只有简单的 `Tag`，没有关联的数据，类似于 C 中的 `enum`  
+
+不过 `enum` 无法枚举终端的所有颜色，现在终端一般支持 256 种颜色，分别以下几种  
+
+- 8 种基本颜色，分别有常规和加粗版本(16)
+- 6 * 6 * 6 RGB 颜色(216)
+- 24 级灰度色谱(24)
+
+```ocaml
+type weight = Regular | Bold
+type color =
+  | Basic of basic_color * weight
+  | RGB of int * int * int
+  | Gray of int;;
+
+[RGB (250, 70, 70); Basic (Green, Regular)];;
+(* - : color list = [RGB (250, 70, 70); Basic (Green, Regular)] *)
+
+let color_to_int = function
+  | Basic (basic_color, weight) -> 
+    let base = match weight with Bold -> 8 | Regular -> 0 in
+    base + basic_color_to_int basic_color
+  | RGB (r, g, b) -> 16 + b + g * 6 + r * 36
+  | Gray i -> 232 + i;;
+  
+let color_print color str =
+  printf "%s\n" (color_by_number (color_to_int color) str);;
+  
+color_print (Basic (Blue, Bold)) "Bold Blue";;
+color_print (Gray 4) "Muted Gray";;
+```
+
+
+
+## 1. 重构
+
+OCaml 的类型系统相当于一个重构工具，会警告代码中哪些地方应当更新来应对接口的改变  
+
+```ocaml
+type color =
+  | Basic of basic_color
+  | Bold of basic_color
+  | RGB of int * int * int
+  | Gray of int;;
+```
+
+再次编译，`color_to_int` 会提示 `Basic Tag` 的参数数量错误，修复之后  
+
+```ocaml
+let color_to_int = function
+  | Basic basic_color -> basic_color_to_int basic_color
+  | RGB (r, g, b) -> 16 + b + g * 6 + r * 36
+  | Gray i -> 232 + i;;
+```
+
+再次编译，编译器又会提示 `Bold` 没有匹配的警告  
+
+```ocaml
+let color_to_int = function
+  | Basic (basic_color, weight) -> basic_color_to_int basic_color
+  | Bold basic_color -> 8 + basic_color_to_int basic_color
+  | RGB (r, g, b) -> 16 + b + g * 6 + r * 36
+  | Gray i -> 232 + i;;
+```
+
+要避免模式匹配 `catch-all` (全包)的情况  
+
+```ocaml
+let old_color_to_int = function
+  | Basic (basic_color, weight) -> 
+    let base = match weight with Bold -> 8 | Regular -> 0 in
+    base + basic_color_to_int basic_color
+  | _ -> basic_color_to_int White;;
+```
+
+当添加 `Bold` 后，类型系统不会发出警告  
+
+
+
+## 2. 结合记录和变体
+
+*代数数据类型(algebraic data types)* 这个术语经常用以描述包括变体、记录和元组这几个类型的一组类型。代数数据类型是一种用以描述数据的有用且强大的语言。核心原因是它们结合了两种不同类型： *积类型（product type）*，像元组和记录，把不同类型组合在一起，数学上类似于笛卡儿积；以及 *和类型 (sum type)*，像变体，它可以把不同的可能组合在一个类型中，数学上类似于不相交并集。
+
+回忆之前的 `Log_entry.t` 的定义  
+
+```ocaml
+module Log_entry = struct
+  type t = { 
+    session_id: string;
+    time: Time.t;
+    important: bool;
+    message: string; 
+  }
+  end;;
+```
+
+更一般的，可以将记录看为合取，将变体看为析取  
+
+```ocaml
+type client_message =
+  | Logon of Logon.t
+  | Hearbeat of Heartbeat.t
+  | Log_entry of Log_entry.t;;
+```
+
+`client_message` 是一个 `Logon` 或者 `Heartbeat` 或者 `Log_entry`  
+
+考虑下面这个函数，接收一个 `client_message` 列表，返回给定用户的所有消息。
+
+```ocaml
+let messages_for_user user messages =
+    let (user_messages,_) =
+      List.fold messages ~init:([],String.Set.empty)
+        ~f:(fun ((messages,user_sessions) as acc) message ->
+          match message with
+          | Logon m ->
+            if m.Logon.user = user then
+              (message::messages, Set.add user_sessions m.Logon.session_id)
+            else acc
+          | Heartbeat _ | Log_entry _ ->
+            let session_id = match message with
+              | Logon     m -> m.Logon.session_id
+              | Heartbeat m -> m.Heartbeat.session_id
+              | Log_entry m -> m.Log_entry.session_id
+            in
+            if Set.mem user_sessions session_id then
+              (message::messages,user_sessions)
+            else acc
+        )
+    in
+    List.rev user_messages;;
+```
+
+上面的代码很难看懂，尤其是决定 session_id 的部分，对上面的功能进行重构  
+
+```ocaml
+module Log_entry = struct
+  type t = {
+    important: bool;
+    message: string;
+  }
+end
+
+module Heartbeat = struct
+  type t = { status_message: string; }
+end
+
+module Logon = struct
+  type t = {
+    user: string;
+    credentials: string;
+  }
+end;;
+
+type details =
+    | Logon of Logon.t
+    | Heartbeat of Heartbeat.t
+    | Log_entry of Log_entry.t;;
+    
+module Common = struct
+  type t = { 
+    session_id: string;
+    time: Time.t;
+  }
+end;;
+```
+
+一个完整的消息可以使用 `Common.t` 和一个 `details` 构成的记录对来表示，把前面的方法重写  
+
+```ocaml
+let messages_for_user user messages =
+    let (user_messages,_) =
+      List.fold messages ~init:([],String.Set.empty)
+        ~f:(fun ((messages,user_sessions) as acc) ((common,details) as message) ->
+          let session_id = common.Common.session_id in
+          match details with
+          | Logon m ->
+            if m.Logon.user = user then
+              (message::messages, Set.add user_sessions session_id)
+            else acc
+          | Heartbeat _ | Log_entry _ ->
+            if Set.mem user_sessions session_id then
+              (message::messages,user_sessions)
+            else acc
+        )
+    in
+    List.rev user_messages;;
+```
+
+
+
+## 3. 变体和递归数据结构
+
+变体的另一个常见应用是表示树状递归数据结构  
+
+```ocaml
+type 'a expr =
+  | Base  of 'a
+  | Const of bool
+  | And   of 'a expr list
+  | Or    of 'a expr list
+  | Not   of 'a expr ;;
+```
+
+计算表达式  
+
+```ocaml
+let rec eval expr base_eval =
+  (* a shortcut, so we don't need to repeatedly pass [base_eval]
+     explicitly to [eval] *)
+  let eval' expr = eval expr base_eval in
+  match expr with
+  | Base  base   -> base_eval base
+  | Const bool   -> bool
+  | And   exprs -> List.for_all exprs ~f:eval'
+  | Or    exprs -> List.exists  exprs ~f:eval'
+  | Not   expr  -> not (eval' expr);;
+```
+
+
+
+可以对上面的例子进行化简  
+
+```ocaml
+let and_ l =
+  if List.mem l (Const false) then Const false
+  else
+    match List.filter l ~f:((<>) (Const true)) with
+    | [] -> Const true
+    | [ x ] -> x
+    | l -> And l
+
+let or_ l =
+  if List.mem l (Const true) then Const true
+  else
+    match List.filter l ~f:((<>) (Const false)) with
+    | [] -> Const false
+    | [x] -> x
+    | l -> Or l
+
+let not_ = function
+  | Const b -> Const (not b)
+  | (Base _ | And _ | Or _ | Not _) as e -> Not e;;
+  
+  
+let rec simplify = function
+  | Base _ | Const _ as x -> x
+  | And l -> and_ (List.map ~f:simplify l)
+  | Or l  -> or_  (List.map ~f:simplify l)
+  | Not e -> not_ (simplify e);;
+```
+
+
+
+## 4. 多态变体
+
+```ocaml
+#let three = `Int 3;;
+* val three : [> `Int of int ] = `Int 3 *
+# let four = `Float 4.;;
+val four : [> `Float of float ] = `Float 4.
+# let nan = `Not_a_number;;
+val nan : [> `Not_a_number ] = `Not_a_number
+# [three; four; nan];;
+- : [> `Float of float | `Int of int | `Not_a_number ] list =
+[`Int 3; `Float 4.; `Not_a_number]
+```
+
+标签名（如` Int`）和类型名 (`int`) 是匹配的，如果同一个类型使用不兼容就会报错  
+
+```ocaml
+let five = `Int "five";;
+val five : [> `Int of string ] = `Int "five"
+# [three; four; five];;
+(* Characters 14-18:
+Error: This expression has type [> `Int of string ]
+       but an expression was expected of type
+         [> `Float of float | `Int of int ]
+       Types for tag `Int are incompatible *)
+```
+
+变体类型最开始的 `>` 标志了类型可以与其他的变体类型结合，可以把 `>` 理解为这些标记或更多，可能包括更多标记，`<` 表示这些或更少的标签  
+
+```ocaml
+let is_positive = function
+  | `Int   x -> x > 0
+  | `Float x -> x > 0. ;;
+val is_positive : [< `Float of float | `Int of int ] -> bool = <fun>
+```
+
+如果标签集既是上边界又是下边界，我们就得到了一个*确切的*多态变体类型，什么标记都没有。  
+
+```ocaml
+let exact = List.filter ~f:is_positive [three;four];;
+val exact : [ `Float of float | `Int of int ] list = [`Int 3; `Float 4.]
+```
+
+创建来自不同上界和下界的变体类型  
+
+```ocaml
+let is_positive = function
+  | `Int   x -> Ok (x > 0)
+  | `Float x -> Ok (x > 0.)
+  | `Not_a_number -> Error "not a number";;
+val is_positive :
+  [< `Float of float | `Int of int | `Not_a_number ] ->
+  (bool, string) Result.t = <fun>
+List.filter [three; four] ~f:(fun x ->
+  match is_positive x with Error _ -> false | Ok b -> b);;
+- : [< `Float of float | `Int of int | `Not_a_number > `Float `Int ] list =
+[`Int 3; `Float 4.]
+```
+
+
+
+## 5. 再看终端颜色
+
+现在需要在扩展原先的 `RGB`，加上一个 alpha 通道  
+
+```ocaml
+type extended_color =
+  | Basic of basic_color * weight  (* basic colors, regular and bold *)
+  | RGB   of int * int * int       (* 6x6x6 color space *)
+  | Gray  of int                   (* 24 grayscale levels *)
+  | RGBA  of int * int * int * int (* 6x6x6x6 color space *)
+```
+
+```ocaml
+let extended_color_to_int = function
+  | RGBA (r,g,b,a) -> 256 + a + b * 6 + g * 36 + r * 216
+  | (Basic _ | RGB _ | Gray _) as color -> color_to_int color;;
+(* Characters 154-159: Error: This expression has type extended_color but an expression was expected of type color *)
+```
+
+因为类型造成编译错误，`extended_color` 和 `color` 是两个不同的没有关系的类型  
+
+我们想要做的就是在两个不同变体类型之间共享标签，而多态变体正好可以以一种自然的方式做到这一点  
+
+```ocaml
+let basic_color_to_int = function
+  | `Black -> 0 | `Red     -> 1 | `Green -> 2 | `Yellow -> 3
+  | `Blue  -> 4 | `Magenta -> 5 | `Cyan  -> 6 | `White  -> 7
+
+let color_to_int = function
+  | `Basic (basic_color,weight) ->
+    let base = match weight with `Bold -> 8 | `Regular -> 0 in
+    base + basic_color_to_int basic_color
+  | `RGB (r,g,b) -> 16 + b + g * 6 + r * 36
+  | `Gray i -> 232 + i;;
+
+let extended_color_to_int = function
+  | `RGBA (r,g,b,a) -> 256 + a + b * 6 + g * 36 + r * 216
+  | (`Basic _ | `RGB _ | `Gray _) as color -> color_to_int color
+```
+
+
+
+---
+
+**多态变体和 catch-all**
+
+给 `match` 添加 `catch-all` 分支，得到了一个有下界的类型
+
+```ocaml
+let is_positive_permissive = function
+  | `Int   x -> Ok (x > 0)
+  | `Float x -> Ok (x > 0.)
+  | _ -> Error "Unknown number type";;
+val is_positive_permissive : [> `Float of float | `Int of int ] -> (bool, string)  Result.t = <fun>
+is_positive_permissive (`Int 0);;
+- : (bool, string) Result.t = Ok false
+is_positive_permissive (`Ratio (3,4));;
+- : (bool, string) Result.t = Error "Unknown number type"
+```
+
+而且 `catch-all` 的情况很容易出错  
+
+```ocaml
+is_positive_permissive (`Floot 3.5);;
+```
+
+把 `Float` 错误拼写成 `Floot`，仍然可以正常编译，但是隐含了一个 bug
+
+---
+
+
+
+把终端颜色的所有工作放到一起  
+
+```ocaml
+(* mli *)
+open Core.Std
+
+type basic_color =
+  [ `Black   | `Blue | `Cyan  | `Green
+  | `Magenta | `Red  | `White | `Yellow ]
+
+type color =
+  [ `Basic of basic_color * [ `Bold | `Regular ]
+  | `Gray of int
+  | `RGB  of int * int * int ]
+
+type extended_color =
+  [ color
+  | `RGBA of int * int * int * int ]
+
+val color_to_int          : color -> int
+val extended_color_to_int : extended_color -> int
+```
+
+```ocaml
+(* ml *)
+open Core.Std
+
+type basic_color =
+  [ `Black   | `Blue | `Cyan  | `Green
+  | `Magenta | `Red  | `White | `Yellow ]
+
+type color =
+  [ `Basic of basic_color * [ `Bold | `Regular ]
+  | `Gray of int
+  | `RGB  of int * int * int ]
+
+type extended_color =
+  [ color
+  | `RGBA of int * int * int * int ]
+
+let basic_color_to_int = function
+  | `Black -> 0 | `Red     -> 1 | `Green -> 2 | `Yellow -> 3
+  | `Blue  -> 4 | `Magenta -> 5 | `Cyan  -> 6 | `White  -> 7
+
+let color_to_int = function
+  | `Basic (basic_color,weight) ->
+    let base = match weight with `Bold -> 8 | `Regular -> 0 in
+    base + basic_color_to_int basic_color
+  | `RGB (r,g,b) -> 16 + b + g * 6 + r * 36
+  | `Gray i -> 232 + i
+
+let extended_color_to_int = function
+  | `RGBA (r,g,b,a) -> 256 + a + b * 6 + g * 36 + r * 216
+  | `Grey x -> 2000 + x
+  | (`Basic _ | `RGB _ | `Gray _) as color -> color_to_int color
+```
+
+`extended_color_to_int` 中 `Gray` 不小心拼写成 `Grey`，但是编译器没有任何问题  
+
+如果给代码(ml)添加一个类型注释，那么编译会进行警告  
+
+```ocaml
+let extended_color_to_int : extended_color -> int = function
+  | `RGBA (r,g,b,a) -> 256 + a + b * 6 + g * 36 + r * 216
+  | `Grey x -> 2000 + x
+  | (`Basic _ | `RGB _ | `Gray _) as color -> color_to_int color
+```
+
+
+
+一旦定义了类型，就可以重新审视窄化类型的模式匹配这个问题，可以显式使用模式匹配的一部分，加一个 `#` 前缀  
+
+```ocaml
+let extended_color_to_int : extended_color -> int = function
+  | `RGBA (r,g,b,a) -> 256 + a + b * 6 + g * 36 + r * 216
+  | #color as color -> color_to_int color
+```
+
+
+
+**何时使用多态变体**
+
+多态变体绝对是普通变体的升级版。你可以做普通变体能做的任何事，还更灵活更简洁  
+
+实际上，多数时候普通变体才是更实际的选择。因为多态变体的灵活性是有代价的  
+
+- 复杂性，值层面上的简洁往往是牺牲了类型层面的复杂性
+- 错误查找，多态类型是类型安全的，但是它们的类型规则，因其灵活性使它不容易捕捉你程序中的 bug
+- 效率，这一点影响不是非常大，但多态变体会比普通变体重一些
 
 
 
