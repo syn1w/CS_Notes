@@ -2579,6 +2579,328 @@ let extended_color_to_int : extended_color -> int = function
 
 
 
+# 八、错误处理
+
+OCaml 两种错误处理方式：带错误的返回值和异常  
+
+## 1. 错误返回类型
+
+把错误包含在返回值中  
+
+```ocaml
+List.find;;
+- : 'a list -> f:('a -> bool) -> 'a option = <fun>
+```
+
+`option` 指示这个函数可能无法找到一个合适的元素  
+
+
+
+**`Result`对错误编码**
+
+`option` 的表达能力比较弱，比如返回为 `None` 时，并不知道发生了什么错误  
+
+`Result.t` 可以克服这个缺点，下面是 `Result.t` 定义：  
+
+```ocaml
+module Result : sig
+   type ('a,'b) t = | Ok of 'a
+                    | Error of 'b
+end
+```
+
+```ocaml
+(* use *)
+[ Ok 3; Error "adjust failure"; Ok 4];;
+(* - : (int, string) result list = [Ok 3; Error "adjust failure"; Ok 4] *)
+```
+
+
+
+**`Error`和`Or_error`**
+
+`Result.t` 提供了自由以及易用，不过要使用那种类型(字符串、结构化形式，如 XML) 或者其他  
+
+`Core` 的答案是 `Error.t` 类型，它试图在效率、方便性和对错误表达的控制力之间取得一个很好的平衡  
+
+`Error` 使用惰性求值来提高效率  
+
+```ocaml
+# Error.of_string "something went wrong";;
+(* - : Error.t = something went wrong *)
+
+# Error.of_thunk (fun () ->
+    sprintf "something went wrong: %f" 32.3343);;
+(* - : Error.t = something went wrong: 32.334300 *)
+```
+
+`thunk` 是一个接受 `unit` 类型参数的函数  
+
+创建 `Error` 最常用的方法是 S 表达式(s-expression)，S 表达式是左右括号平衡的表达式  
+
+```ocaml
+(This (is an) (s exprssion))
+```
+
+S 表达式由 `Sexplib` 包提供支持，也是 `Core` 最常用的序列号格式，`Core` 中的多数类型都自带了内建的 S - 表达式转换器  
+
+使用时间的 `sexp` 转换器 `Time.sexp_of_t`
+
+```ocaml
+Error.create "Something failed a long time ago" Time.epoch Time.sexp_of_t;;
+(* ("Something failed a long time ago" (1970-01-01 08:00:00.000000+08:00)) *)
+```
+
+注意：这里采用惰性求值，`Error` 在打印之前是没有被真正序列化成 S - 表达式的  
+
+之后还会更加详细说明 S 表达式  
+
+
+
+`'a Or_error.t` 只是 `('a, Error.t) Result.t` 的简写，是 `Core` 中 `option` 之外常用的返回错误的方法之一  
+
+
+
+## 2. bind 和其他惯用法
+
+随着用 OCaml 编写越来越多的错误处理代码，你会发现有几个特定的模式凸显出来  
+
+其中的一些通用模式已经被编进了 `Option` 和 `Result` 模块中的函数里  
+
+一个特别有用的模式是围绕 `bind` 函数构建的，`bind` 既是普通函数又是中缀操作符 `>>=`。下面是 `option` 的 `bind` 定义：
+
+```ocaml
+let bind option f =
+  match option with
+  | None -> None
+  | Some x -> f x;;
+(* val bind : 'a option -> ('a -> 'b option) -> 'b option = <fun> *)
+```
+
+我们可以通过使用 `bind` 的中缀操作符(`>>=`)形式来去掉括号以使代码更易读，中缀操作符通过局部打开 `Option.Monad_infix` 访问。模块名叫 `Monad_infix` 是因为 `bind` 操作符是 `Monad` 子接口的一部分  
+
+`Option` 的函数中还有其它有用的惯用法。`Option.both` 是其中之一，它接收两个 `option` 值，生成一个新的 `option` 序对，如果参数中有一个是 `None`，那么就返回 `None`  
+
+
+
+## 3. 异常
+
+和其他语言的异常类似  
+
+```ocaml
+3 / 0;;
+(* Exception: Division_by_zero. *)
+```
+
+自定义异常  
+
+```ocaml
+exception Key_not_found of string;;
+(* exception Key_not_found of string *)
+raise (Key_not_found "a");;
+(* Exception: Key_not_found("a"). *)
+```
+
+异常只是普通的值，可以像操作其它 OCaml 值一样操作  
+
+```ocaml
+let exceptions = [ Not_found; Division_by_zero; Key_not_found "b" ];;
+List.filter exceptions  ~f:(function
+    | Key_not_found _ | Not_found -> true
+    | _ -> false);;
+(* - : exn list = [Not_found; Key_not_found("b")] *)
+```
+
+异常的类型都是 `exn`，`exn` 类型是 OCaml 的特例，和变体类似，但但前者是*开放的*，就是说任何地方都没有其完整定义。新的异常可以在程序的任何地方添加进来。这和普通变体不同，后者把可用标签定义在一个封闭域里。一个结果就是你永远都不会完整匹配 `exn` 类型，因为可能的异常全集是未知的。  
+
+```ocaml
+let rec find_exn alist key = match alist with
+  | [] -> raise (Key_not_found key)
+  | (key',data) :: tl -> if key = key' then data else find_exn tl key;;
+(* val find_exn : (string * 'a) list -> string -> 'a = <fun> *)
+```
+
+`find_exn` 的返回值是 `'a`  
+
+```ocaml
+raise;;
+(* - : exn -> 'a = <fun> *)
+```
+
+`raise` 的返回值也是 `'a`，实际上，`raise` 返回类型`'a` 是因为它从不返回。下面是另一个从不返回的例子  
+
+```ocaml
+# let rec forever () = forever ();;
+val forever : unit -> 'a = <fun>
+```
+
+
+
+**使用 `sexp` 声明异常**
+
+```ocaml
+exception Wrong_date of Date.t;;           (* 1 *)
+Wrong_date (Date.of_string "2011-02-23");;
+(* - : exn = Wrong_date(_) *)
+exception Wrong_date of Date.t with sexp;; (* 2 *)
+Wrong_date (Date.of_string "2011-02-23");;
+(* - : exn = (//toplevel//.Wrong_date 2011-02-23) *)
+```
+
+第二种使用 `sexp` 声明的异常带有更多的信息  
+
+
+
+**抛出异常的辅助函数**
+
+```ocaml
+let failwith msg = raise (Failure msg);;
+(* val failwith : string -> 'a = <fun> *)
+```
+
+还有好几个其它有用的函数可以用于抛出异常，可以在 Core 的 `Common` 和 `Exn` 模块的 API 文档中找到。  
+
+另一个抛出异常重要的方式是 `assert`，`assert` 接受表达式作为参数  
+
+```ocaml
+match Sys.os_type with
+| "Unix" | "Cygwin" ->   (* code omitted *)
+| "Win32" ->             (* code omitted *)
+| "MacOS" ->             (* code omitted *)
+| _ -> failwith "this system is not supported"
+```
+
+**异常处理器**
+
+```ocaml
+try <expr> with
+| <pat1> -> <expr1>
+| <pat2> -> <expr2>
+...
+```
+
+**清理异常现场**
+
+```ocaml
+let reminders_of_sexp = <:of_sexp<(Time.t * string) list>>;;
+(* val reminders_of_sexp : Sexp.t -> (Time.t * string) list = <fun> *)
+let load_reminders filename =
+  let inc = In_channel.create filename in
+  let reminders = reminders_of_sexp (Sexp.input_sexp inc) in
+  In_channel.close inc;
+  reminders;;
+```
+
+函数加载 S 表达式并将其解析成一个 `Time.t/string` 序对列表，在文件格式畸形时可能会抛异常，这意味着打开的 `In_chnnel.t` 永远都不会关闭了，这会导致文件描述符泄漏  
+
+可以使用 `Core` 中的 `protect` 函数来修复这个问题，接受两个参数。一个代码块 `f`，是要进行的计算的主体；一个是代码块 `finally`，在 `f` 退出时调用，无论是正常退出还是异常退出  
+
+```ocaml
+let load_reminders filename =
+  let inc = In_channel.create filename in
+  protect ~f:(fun () -> reminders_of_sexp (Sexp.input_sexp inc))
+    ~finally:(fun () -> In_channel.close inc) ;;
+```
+
+还可以使用 `In_channel.with_file` 实现  
+
+```ocaml
+let reminders_of_sexp filename =
+  In_channel.with_file filename ~f:(fun inc ->
+    reminders_of_sexp (Sexp.input_sexp inc));;
+```
+
+**捕获特定异常**
+
+```ocaml
+let lookup_weight ~compute_weight alist key =
+  try
+    let data = List.Assoc.find_exn alist key in
+    compute_weight data
+  with
+    Not_found -> 0. ;;
+
+(* val lookup_weight :
+  compute_weight:('a -> float) -> ('b, 'a) List.Assoc.t -> 'b -> float =
+<fun> *)
+```
+
+上面的代码有个问题，如果 `compute_weight` 也抛出异常时会怎样呢？并且抛出的异常恰好是 `Not_found` 呢？
+
+```ocaml
+lookup_weight ~compute_weight:(fun _ -> raise Not_found) ["a",3; "b",4] "a" ;;
+(* - : float = 0. *)
+```
+
+这类问题很难预先检查，因为类型系统不会告诉你一个函数可能会抛出什么异常。因此，通常更好的办法是避免依赖异常标识来确实错误内容  
+
+```ocaml
+let lookup_weight ~compute_weight alist key =
+  match
+    try Some (List.Assoc.find_exn alist key)
+    with _ -> None
+  with
+  | None -> 0.
+  | Some data -> compute_weight data;;
+```
+
+不过这个问题，使用不抛出异常的函数更为合适  
+
+```ocaml
+let lookup_weight ~compute_weight alist key =
+    match List.Assoc.find alist key with
+    | None -> 0.
+    | Some data -> compute_weight data ;;
+```
+
+
+
+**回溯**  
+
+异常的很大一部分价值是它们以栈回溯的形式提供了有用的调试信息  
+
+```ocaml
+open Core.Std
+exception Empty_list
+
+let list_max = function
+  | [] -> raise Empty_list
+  | hd :: tl -> List.fold tl ~init:hd ~f:(Int.max)
+
+let () =
+  printf "%d\n" (list_max [1;2;3]);
+  printf "%d\n" (list_max [])
+```
+
+```sh
+corebuild blow_up.byte
+./blow_up.byte
+# 3
+# Fatal error: exception Blow_up.Empty_list
+# Raised at file "blow_up.ml", line 5, characters 16-26
+# Called from file "blow_up.ml", line 10, characters 17-28
+```
+
+可以通过 `Exn.backtrace` 在程序内部捕获一个回溯，它返回最近抛出的异常的回溯  
+
+如果你打开了回溯功能，这可以很好地工作，但事情不总是如此。实际上，OCaml 默认是关闭回溯的，即使你在运行时打开了，也不能获得回溯信息，除非编译时带了调试符号。Core 默认相反，所以如果你链接了 Core，默认就已经打开了回溯。  
+
+即使是使用了 Core 并且带调试符号编译，你也可以通过将 `OCAMLRUNPARAM` 环境变量设为空来关闭回溯  
+
+也可以在代码中调用 `Backtrace.Exn.set_recording false` 来关闭回溯。  
+
+不使用回溯的理由是：速度。OCaml 的异常已经很快了，但是禁掉回溯会更快。  
+
+
+
+## 4. 选择错误处理策略
+
+OCaml 既支持异常又支持 error-aware 返回类型，我们该如何选择？关键是要权衡简洁性和明确性  
+
+异常更简洁，因为它们允许你将错误处理推迟到一个更大的作用域去执行，它们还不会干扰你的类型。但是这种简洁是有代价的：异常太容易被忽略了。  
+
+如果你在写一个产品级软件，出错很昂贵，那么你可能应该倾向于使用 error-aware 返回值类型。
+
 
 
 # 附录A references
