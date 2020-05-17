@@ -2903,6 +2903,538 @@ OCaml 既支持异常又支持 error-aware 返回类型，我们该如何选择�
 
 
 
+# 九、命令式编程
+
+## 1. 命令式字典
+
+键和值都可变的映射  
+
+`Core` 和  标准库都提供了命令式字典  
+
+```ocaml
+(* file: dictionary.mli *)
+open Core
+
+(* directory key: 'a, value: 'b *)
+type ('a, 'b) t
+
+val create : unit -> ('a, 'b) t
+val length : ('a, 'b) t -> int
+val add  : ('a, 'b) t -> key:'a -> data:'b -> unit
+val find  : ('a, 'b) t -> 'a -> 'b option
+val iter  : ('a, 'b) t -> f:(key:'a -> data:'b -> unit) -> unit
+val remove : ('a, 'b) t -> 'a -> unit
+```
+
+```ocaml
+(* file: dictionary.ml *)
+open Core
+
+type ('a, 'b) t = {
+  mutable length: int;
+  buckets: ('a * 'b) list array;
+}
+
+let num_buckets = 17
+let hash_bucket key = (Hashtbl.hash key) mod num_buckets
+
+(* create an empty directory *)
+let create () = {
+  length = 0;
+  buckets = Array.create ~len:num_buckets [];
+}
+
+let length t = t.length
+
+let find t key =
+  List.find_map t.buckets.(hash_bucket key)
+    ~f:(fun (key', data) -> if key' = key then Some data else None)
+```
+
+`iter t ~f` 会对字典中的每个键 / 值对调用 `f`。注意 `f` 必须返回 `unit`，因为它以副作用而不是返回值起作用，且整个 `iter` 也返回 `unit`  
+
+```ocaml
+let bucket_has_key t i key =
+  List.exists t.buckets.(i) ~f:(fun (key',_) -> key' = key)
+  
+let add t ~key ~data =
+  let i = hash_bucket key in
+  let replace = bucket_has_key t i key in
+  let filtered_bucket =
+    if replace then
+      List.filter t.buckets.(i) ~f:(fun (key',_) -> key' <> key)
+    else
+      t.buckets.(i)
+  in
+  t.buckets.(i) <- (key, data) :: filtered_bucket;
+  if not replace then t.length <- t.length + 1
+  
+let remove t key =
+  let i = hash_bucket key in
+  if bucket_has_key t i key then (
+    let filtered_bucket =
+      List.filter t.buckets.(i) ~f:(fun (key',_) -> key' <> key)
+    in
+    t.buckets.(i) <- filtered_bucket;
+    t.length <- t.length - 1
+  )
+```
+
+
+
+## 2. 原生可变数据
+
+上面我们碰到了两种不同形式的可变数据：有可变字段的记录和数组  
+
+接下来更深入讨论原生可变数据  
+
+**类数组数据**
+
+- **普通数组**
+
+  `array` 类型用以通用目的的多态数组，`Array` 模块有大量和数组交互的工具函数  
+
+  ```ocaml
+  <array_expr>.(<index_expr>)                  (* get *)
+  <array_expr>.(<index_expr>) <- <value_expr>  (* set *)
+  [|1;2;3|]                                    (* literal *)
+  ```
+
+- **字符串**
+
+  字符串本质上是字节数组，通常用在文本数据上。使用 `string` 而不是 `Char.t array`（一个 `Char.t` 是一个 8 比特字符）的主要优势在于空间效率上；数组使用一个字 -- 在 64 位系统上有 8 字节 -- 来存储一个元素，而字符串每个字符只要一个字节  
+
+  ```ocaml
+  <string_expr>.[<index_expr>]
+  <string_expr>.[<index_expr>] <- <char_expr>
+  (* String module *)
+  "hello"                                       (* literal *)
+  ```
+
+- **Bigarray**
+
+  `Bigarray.t` 是 OCaml 堆之外的内存块句柄。主要用以和 C 交互  
+
+  ```ocaml
+  <bigarray_expr>.{<index_expr>}
+  <bigarray_expr>.{<index_expr>} <- <value_expr>
+  ```
+
+- **可变记录和对象字段及引用单元**
+
+  记录类型默认是不可变的，但是单独的记录字段却可以声明为可变的。这些可变字段可以用 `<-` 设置  
+
+  OCaml 中的变量是永不可变的，你确实想要和其它语言中一样的可变变量：定义一个单独的、可变的值。在 OCaml 中，通常可以通过使用 `ref` 来做到这一点，一个 `ref` 本质上是一个包含单独一个可变的多态字段的容器。
+
+  ```ocaml
+  record.field <- expr
+  
+  (* ref cell *)
+  type 'a ref = { mutable contents : 'a; }
+  let ref x = { contents = x };;      (* construct a reference cell*)
+  let (!) r = r.contents;;            (* dereference *)
+  let (:=) r x = r.contents <- x;;    (* modify the content *)
+  
+  (* example of using ref cell *)
+  let x = ref 1;;
+  (* val x : int ref = {contents = 1} *)
+  !x;;               (* - : int = 1 *)
+  x := !x + 1;       (* - : unit = () *)
+  !x;;               (* - : int = 2 *)
+  ```
+
+
+
+**外部函数**
+
+OCaml 中另一部分命令式操作来自通过 OCaml 的外部函数接口（FFI）与外部库的交互。FFI 使 OCaml 可以处理由系统调用或其它外部库导出的命令式结构。其中许多都是内建的  
+
+
+
+## 3. 循环
+
+`for`
+
+```ocaml
+for i = 0 to 3 do printf "i = %d\n" i done;;          (* 0 1 2 3 *)
+for i = 3 downto 0 do printf "i = %d\n" i done;;      (* 3 2 1 0 *)
+```
+
+`while`：就地反转数组
+
+```ocaml
+let rev_inplace ar =
+  let i = ref 0 in
+  let j = ref (Array.length ar - 1) in
+  (* terminate when the upper and lower indices meet *)
+  while !i < !j do
+    (* swap the two elements *)
+    let tmp = ar.(!i) in
+    ar.(!i) <- ar.(!j);
+    ar.(!j) <- tmp;
+    (* bump the indices *)
+    incr i;
+    decr j
+  done;;
+```
+
+
+
+## 4. 例子：双向链表
+
+```ocaml
+(* file: dlist.mli *)
+open Core
+
+type 'a t
+type 'a element
+
+(** Basic list operations *)
+val create  : unit -> 'a t
+val is_empty : 'a t -> bool
+
+(** Navigation using [element]s *)
+val first : 'a t -> 'a element option
+val next  : 'a element -> 'a element option
+val prev  : 'a element -> 'a element option
+val value : 'a element -> 'a
+
+(** Whole-data-structure iteration *)
+val iter  : 'a t -> f:('a -> unit) -> unit
+val find_el : 'a t -> f:('a -> bool) -> 'a element option
+
+(** Mutation *)
+val insert_first : 'a t -> 'a -> 'a element
+val insert_after : 'a element -> 'a -> 'a element
+val remove : 'a t -> 'a element -> unit
+```
+
+```ocaml
+(* dlist.ml *)
+open Core
+
+type 'a element = {
+  value : 'a;
+  mutable next : 'a element option;
+  mutable prev : 'a element option
+}
+
+type 'a t = 'a element option ref
+
+let create() = ref None
+
+let is_empty t = !t = None
+
+let value node = node.value
+
+let first t = !t
+
+let next node = node.next
+
+let prev node = node.prev
+```
+
+
+
+**循环数据结构**
+
+双向链表是循环数据结构，可能沿着一个非平凡的指针序列可以接近自身。通常构建循环数据结构都要求副作用。先构建数据元素，然后使用向后赋值添加循环  
+
+但有一个例外：你可以使用 `let rec` 构建固定长度的循环数据结构  
+
+```ocaml
+let rec endless_loop = 1 :: 2 :: 3 :: endless_loop;;
+(* val endless_loop : int list = [1; 2; 3; <cycle>] *)
+```
+
+**修改双向链表**
+
+```ocaml
+let insert_first t value =
+  let new_node = { value; prev = None; next = !t } in
+  begin match !t with
+  | Some old_first -> old_first.prev <- Some new_node
+  | None -> ()
+  end;
+  t := Some new_node; (* update new head node *)
+  new_node
+
+let insert_after node value =
+  let new_node = { value; prev = Some node; next = node.next } in
+  begin match node.next with
+  | Some old_next -> old_next.prev <- Some new_node
+  | None -> ()
+  end;
+  node.next <- Some new_node;
+  new_node
+  
+let remove t node =
+  let { value; prev; next } = node in
+  begin match prev with
+  | Some prev -> prev.next <- next
+  | None -> t := next
+  end;
+  begin match next with
+  | Some next -> next.prev <- prev
+  | None -> ()
+  end;
+  node.prev <- None;
+  node.next <- None
+  
+let iter t ~f =
+  let rec loop = function
+  | None -> ()
+  | Some node -> f (value node); loop(next node)
+  in
+  loop !t
+```
+
+
+
+## 5. 惰性和良性影响
+
+很多时候，你都想基本上用纯函数式风格编程，只有限地使用副作用来提高代码效率。这种副作用有时称为 *良性影响(benign effects)*，这是一种既能使用命令式特性又能保留纯函数式好处的很有用的方法  
+
+最简单的良性影响就是 **惰性**。一个惰性值就是一个不真正使用不计算的值  
+
+在 OCaml 中，惰性值使用 `lazy` 关键字创建，它可以把一个类型为 `s` 的表达式转换成类型为 `s Lazy.t` 的惰性值。表达式的求值被推迟，直到强制调用 `Lazy.force`  
+
+```ocaml
+let v = lazy (print_string "performing lazy computation\n"; sqrt 16.);;
+(* val v : float lazy_t = <lazy> *)
+Lazy.force v;;
+(* performing lazy computation
+- : float = 4. *)
+Lazy.force v;;
+(* - : float = 4. *)
+```
+
+为了更好理解惰性的工作原理，我们一起来实现自己的惰性类型。我们首先声明一个类型来表示惰性值  
+
+```ocaml
+type 'a lazy_state =
+  | Delayed of (unit -> 'a)
+  | Value of 'a
+  | Exn of exn;;
+```
+
+`lazy_state` 表示一个惰性值的可能状态。运行之前惰性值是 `Delayed`，`Delayed` 持有一个用于计算的函数。计算被强制执行完成并正常结束后惰性值是 `Value`。当计算被强制执行，但抛出了异常时使用 `Exn` 实例。一个惰性值就是一个简单的 `lazy_state` 引用。`ref` 使得可以从 `Delayed` 状态转换到 `Value` 或 `Exn`  
+
+```ocaml
+let create_lazy f = ref (Delayed f);;
+
+let force v =
+  match !v with
+  | Value x -> x
+  | Exn e -> raise e
+  | Delayed f ->
+  try
+    let x = f () in
+    v := Value x;
+    x
+  with exn ->
+    v := Exn exn;
+    raise exn;;
+```
+
+
+
+**备忘与动态编程**
+
+另一个良性影响是 **备忘**。一个备忘函数可以记住之前调用的结果，因此之前调用的参数再次出现时，就可以直接返回而不用继续计算  
+
+```ocaml
+let memoize f =
+  let table = Hashtbl.Poly.create () in
+  (fun x ->
+    match Hashtbl.find table x with
+    | Some y -> y
+    | None ->
+      let y = f x in
+      Hashtbl.add_exn table ~key:x ~data:y;
+      y
+  );;
+(* val memoize : ('a -> 'b) -> 'a -> 'b = <fun> *)
+```
+
+比如递归计算斐波那契数列  
+
+```ocaml
+open Core;;
+
+let time f =
+  let start = Time.now () in
+  let x = f () in
+  let stop = Time.now () in
+  printf "Time: %s\n" (Time.Span.to_string (Time.diff stop start));
+  x;;
+  
+let rec fib i =
+  if i <= 1 then 1 else fib (i - 2) + fib (i - 1);;
+    
+time (fun () -> fib 40);;
+(* Time: 3.26214s *)
+time (fun () -> fib 40);;
+(* Time: 3.24523s *)
+
+(* using memoize *)
+let fib = memoize fib;;
+time (fun () -> fib 40);;
+(* Time: 3.18322s *)
+time (fun () -> fib 40);;
+(* Time: 0.00619888ms *)
+```
+
+展开递归重写 `fib`
+
+```ocaml
+let fib_norec fib i =
+  if i <= 1 then i
+  else fib (i - 1) + fib (i - 2) ;;
+  
+let rec fib i = fib_norec fib i;;
+```
+
+`fib_norec` 需要其第一参数是一个函数（叫作 `fib`），用它来替换每一个递归调用  
+
+现在我们可以连接递归节点 (recursive knot) 来把它转成一个普通的斐波纳契函数  
+
+甚至可以定义一个叫 `make_rec` 的多态函数以这种形式来连接任何函数的递归节点  
+
+```ocaml
+let make_rec f_norec =
+  let rec f x = f_norec f x in
+  f;;
+  
+let memo_rec f_norec x =
+  let fref = ref (fun _ -> assert false) in  (* placeholder *)
+  let f = memoize (fun x -> f_norec !fref x) in
+  fref := f;
+  f x;;
+  
+  
+let fib = memo_rec fib_norec;;
+```
+
+
+
+## 6. 输入输出
+
+命令式编程可不只修改内存数据。还有和程序外部世界交互的操作。其中一个重要例子就是 I/O，即从文件、终端输入输出和网络套接字读写数据的操作  
+
+OCaml 中有好几个 I/O 库。本节我们要讨论 OCaml 带缓存的 I/O 库，可以通过 Core 的 `In_channel` 和 `Out_channel` 模块使用。其它 I/O 原语可以通过 Core 的 `Unix` 模块和 `Async` 获得  
+
+标准输入输出 `In_channel.stdin, Out_channel.stdout, Out_channel.stderr`  
+
+`stdin`、`stdout` 和 `stderr` 非常有用，以至于它们可以在全局作用域中直接使用，不需要通过 `In_channel` 和 `Out_channel` 模块  
+
+向终端进行输出还可以使用 `Printf` 模块  
+
+
+
+## 7. 求值顺序
+
+```ocaml
+let x = sin 120. in
+  let y = sin 75.  in
+  let z = sin 128. in
+  List.exists ~f:(fun x -> x < 0.) [x;y;z];;
+```
+
+某种意义上，我们不需要求值 `sin 128.`。因为 `sin 75.` 是负的，所以我们在计算 `sin 128.` 之前就已经知道答案了  
+
+但不必非要如此。使用 `lazy` 关键字，我们可以重写原始计算  
+
+```ocaml
+let x = lazy (sin 120.) in
+  let y = lazy (sin 75.)  in
+  let z = lazy (sin 128.) in
+  List.exists ~f:(fun x -> Lazy.force x < 0.) [x;y;z];;
+```
+
+
+
+## 8. 副作用与弱多态
+
+```ocaml
+let remember =
+  let cache = ref None in
+  (fun x ->
+    match !cache with
+    | Some y -> y
+    | None -> cache := Some x; x);;
+
+(* val remember : '_a -> '_a = <fun> *)
+
+let identity x = x;;
+(* val identity : 'a -> 'a = <fun> *)
+```
+
+`remember` 函数缓存了传给它的第一个值，每次调用都返回这个值。因为 `cache` 在 `remember` 调用之间只被创建和初始化一次  
+
+`identity` 的多态类型使其可以操作不同类型的值  
+
+OCaml 推导出的 `remember` 类型看起来和 `identity` 很像，但又不完全一样  
+
+类型变量`'_a` 中的下划线告诉我们这个变量仅仅是 *弱多态*的，就是说它可以被用在任何 *单独*类型上。这是合理的，因为，不像 `identity`，`remember` 总是返回第一次调用时传给它的值，这意味着其返回值都是相同类型的  
+
+OCaml 一旦知道了要使用的具体类型，就会把弱多态转换成一个具体类型  
+
+**值约束**
+
+编译器何时会推导出弱多态类型呢？正如你看到的，当一个类型未知的值保存在一个永久可变单元中时，我们需要弱多态类型。因为类型系统没有精确到可以确定所有可能情况，OCaml 使用了一种简单的规则来标记不引入任何永久可变单元的情况，只在那些情况下推导出多态类型。这条规则叫作 *值约束*  
+
+值约束的核心是一些类型的表达式，我们称之为 *简单值*，本质上就不能引入可变单元：常量、只包含简单值的构造函数、函数声明，即，以 `fun` 或 `function` 开头的表达式或其等价的 `let` 绑定、形如 `let var = expr1 in expr2` 的 `let` 绑定，其中 `expr1` 和 `expr2` 都是简单值  
+
+**偏特化应用和值约束**  
+
+大多数时候，值约束起作用时都是合理的，即，因为这个值实际上只能安全地用在单独一个类型上。但有时，值约束不是你想要的。这些情况中最常见的就是偏特化应用函数。一个偏特化应用函数，像函数应用一样都不是简单值，所以，用偏特化创建的函数有时没有你想像的那么通用  
+
+```ocaml
+List.init;;
+(* - : int -> f:(int -> 'a) -> 'a list = <fun> *)
+
+let list_init_10 = List.init 10;;
+(* val list_init_10 : f:(int -> '_a) -> '_a list = <fun> *)
+```
+
+我们现在为返回的函数推导出一个弱多态类型。这是因为没有什么能保证 `List.init` 不会在内部创建一个持久的 `ref`，可以跨多个 `list_init_10` 调用。通过避免偏特化应用，我们可以消除这种可能性，同时使编译器推导出一个多态类型：
+
+```ocaml
+let list_init_10 ~f = List.init 10 ~f;;
+(* val list_init_10 : f:(int -> 'a) -> 'a list = <fun> *)
+```
+
+这种转换被称为 *eta expansion*，常用于解决值约束引发的问题  
+
+**放松值约束**
+
+OCaml 对多态类型的推导实际上比上面说的要好一些。值约束基本上是一个语法检查：你可以做一些简单值的操作，任何是简单值的东西都可以泛化  
+
+但 OCaml 实际上有一个宽松版的值约束，可以利用类型信息来允许不是简单值的多态类型  
+
+例如我们看到一个函数调用，即使是像 `identity` 这么简单的，也不是一个简单值，会把一个多态值变成一个弱多态值：
+
+```ocaml
+identity (fun x -> [x;x]);;
+(* - : '_a -> '_a list = <fun> *)
+```
+
+当返回值是不可变的时，OCaml 就会推导出一个完全多态类型： 
+
+```ocaml
+identity [];;
+(* - : 'a list = [] *)
+```
+
+我们可以使用下面两种中的任一种方法来解决此问题：或使类型具体化（即在 mli 文件中暴露实现），这通常不令人满意；或把类型变量标记成 *协变量 (covariant.)*。关于协变量和抗变性我们会在之后介绍  
+
+实践上使用 `+'a` 代替接口 `'a`，就是显式地表明接口的数据结构不会包含类型`'a` 的持久引用，这样，OCaml 就可以为这个类型的表达式推导多态类型，即使它不是简单类型  
+
+
+
+
+
 # 附录A references
 
 https://ocaml.org/learn/tutorials/index.zh.html  
