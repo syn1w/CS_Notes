@@ -8,9 +8,7 @@
 
 使用字母来表示**命题变元**，习惯使用 $p, q, r, s, ...$  表示命题。如果一个命题是真命题，真值为真，用 $T$  表示；如果是假命题，真值为假，用 $F$ 表示。  
 
-涉及命题的逻辑领域叫**命题演算**或**命题逻辑**。  
-
-**复合命题**是由已知命题用逻辑运算符组合而来。  
+涉及命题的逻辑领域叫**命题演算**或**命题逻辑**。**复合命题**是由已知命题用逻辑运算符组合而来。  
 
 
 
@@ -128,7 +126,7 @@
 
 > **定义一** 一个真值永远是真的命题称为永真式(tautology)，也称为重言式。一个真值永远为假的命题为矛盾式(contradiction)，既不是永真式又不是矛盾式的命题是可能式。  
 
-> **定义二** 如果 $p \leftrightarrow q$ 为永真式，则命题 $p$ 和 $q$ 称为逻辑等价的。记作 $p \equiv q$ 或者 $p \Leftrightarrow q$ 。  
+> **定义二** 如果 $p \leftrightarrow q$ 为永真式，则命题 $p$ 和 $q$ 称为逻辑等价的。记作 $p \equiv q$ 或者 $p \Leftrightarrow q$   
 
 判断两个复合命题是否等价的方法之一是使用真值表  
 
@@ -214,7 +212,7 @@ $$\lnot (p \lor q) \equiv \lnot p \land \lnot q$$
 
 量词否定的规则称为**量词的德·摩根律**。  
 
-|          否定           |        等价语句         |        合适为真         |        何时为假         |
+|          否定           |        等价语句         |        何时为真         |        何时为假         |
 | :---------------------: | :---------------------: | :---------------------: | :---------------------: |
 |  $\lnot\,\exist xP(x)$  | $\forall x \lnot P(x)$  | 对每个 $x$，$P(x)$ 为假 |  存在 $x$，$P(x)$ 为真  |
 | $\lnot \forall x\,P(x)$ | $\exist x\,\lnot\,P(x)$ | 存在 $x$ 使 $P(x)$ 为假 | 对每个 $x$，$P(x)$ 为真 |
@@ -239,7 +237,7 @@ $\exist x\;\forall y \; P(x, y)$ 指存在一个 $x$，使得 $P(x, y)$ 对所�
 
 例：求表达式语句 $\forall x \; \exist y\;(xy = 1)$ 的否定  
 
-$$ \lnot \forall x \;\exist y \; (xy = 1)  = \exist x\;\lnot \exist y\;(xy=1) \\ = \exist x\;\forall y\;\lnot(xy=1) \\  = \exist x\; \forall y\; (xy\ne 1) $$  
+$$\begin{align} \lnot \forall x \;\exist y \; (xy = 1) & = \exist x\;\lnot \exist y\;(xy=1) \\ & = \exist x\;\forall y\;\lnot(xy=1) \\ & = \exist x\; \forall y\; (xy\ne 1) \end{align}$$  
 
 <br>
 
@@ -288,6 +286,8 @@ $$ \lnot \forall x \;\exist y \; (xy = 1)  = \exist x\;\lnot \exist y\;(xy=1) \\
 
 **存在引入**是从已知有一个特定的 $c$ 使得 $P(c)$ 为真时得出 $\exist xP(x)$ 为真的推理规则。  
 
+<br>
+
 
 
 ## 7. 证明导论
@@ -320,4 +320,160 @@ $$ \lnot \forall x \;\exist y \; (xy = 1)  = \exist x\;\lnot \exist y\;(xy=1) \\
 
 
 
+
+# 二、基本结构
+
+**基本结构：集合、函数、序列、求和、矩阵**  
+
+## 1. 集合
+
+> **定义一** 集合是对象的一个无序的聚集，对象也称为集合的元素(element)或成员(member)。集合包含(contain)它的元素。我们用 $a \in A$ 来表示 $a$ 是集合 $A$ 中的一个元素。而记号 $a\notin A$ 表示 $a$ 不是集合 $A$ 中的一个元素。  
+
+通常使用大写字母来表示集合，使用小写字母来表示集合中的元素。  
+
+描述集合的方式：  
+
+- 列举法(花名册方法)，比如 $\{ a,\, b\,, c,\, d\}$, $\{1,\, 2,\, 3,\, \dots,\, 99\}$
+- 集合构造器，比如 $O = \{x |x 是小于10的正奇数\}$
+- 文氏图
+
+常用集合：
+
+- $\mathbf N$，自然数集
+- $\mathbf Z$，整数集
+- $\mathbf Z^+$，正整数集
+- $\mathbf Q$，有理数集
+- $\mathbf R$，实数集
+- $\mathbf R^+$，正实数集
+- $\mathbf C$，复数集
+
+**区间**：$[a,\,b]$ 闭区间，$(a,\,b)$ 开区间，$[a,\,b)$ 左闭右开区间，$(a,\,b]$ 左开右闭区间  
+
+> **定义二** 两个集合相等当且仅当它们拥有相同的元素。如果 $A$ 和 $B$ 是集合，则 $A$ 和 $B$ 是相等的当且仅当 $\forall x (x\in A \leftrightarrow x\in B)$。如果 $A$ 和 $B$ 是相等集合，记为 $A \equiv B$  
+
+**空集**：不含任何元素的集合。用 $\varnothing$ 表示，也可以使用 $\{\}$ 表示。只有一个元素的集合叫做**单元素集**。注意区分 $\varnothing$ 和 $\{\varnothing\}$。  
+
+**全集 U**：包含所考虑的全部对象。
+
+**罗素悖论**：是罗素用来比喻罗素悖论的一个通俗说法，也称为理发师悖论，由于**朴素集合论**对于集合不加限定的定义。导致了数学危机，最终形成了现在的**公理化集合论**。悖论的内容是：他只为城里所有不为自己刮胡子的人刮胡子，理发师应该给自己刮胡子吗？  
+
+> **定理一** 对于任意集合 $S$，$\varnothing \in S$ 和 $S \subseteq S$  
+
+
+> **定义三** 集合 $A$ 是集合 $B$ 的子集当且仅当 $A$ 的每个元素也是 $B$ 的元素。使用 $A \subseteq B$ 表示集合 $A$ 是集合 $B$ 的子集  
+>
+> **定义四** 令 $S$ 是集合，如果 $S$ 中恰有 n 个不同的元素，这里 n 是非负整数，我们就说 $S$ 是有限集，而 n 是 $S$ 的基数。$S$ 的基数记为 $|S|$  
+>
+> **定义五** 如果一个集合不是有限的，则称为无限的  
+>
+> **定义六** 给定集合 $S$，$S$ 的幂集(power set)是集合 $S$ 所有子集的集合。$S$ 的幂集记作 $\mathcal  {{P}}(S)$
+
+ $\mathcal  {{P}}(\{0,\,1,\,2\}) = \{\varnothing, \{0\}, \{1\}, \{2\}, \{0,1\}, \{0,2\}, \{1, 2\}, \{0,1,2\} \}$   
+
+ $\mathcal  {{P}}(\varnothing) = \{\varnothing\}$  
+
+ $\mathcal  {{P}}(\{\varnothing\}) = \{\varnothing, \{\varnothing\}\}$  
+
+
+
+> **定义七** 有序 n 元组(ordered n-tuple) $a_1, a_2, \dots, a_n$ 是以 $a_1$ 为第一个元素，$a_2$ 为第二个元素，$\dots$，$a_n$ 为第 n 个元素的有序聚集  
+
+**序偶(有序对)**(ordered pair)：有序二元组  
+
+> **定义八** 令 $A$ 和 $B$ 是集合，$A$ 和 $B$ 的**笛卡尔积**(Cartesian product) 用 $A \times B$ 表示，是所有序偶 $(a, b)$ 的集合，其中 $a \in A$ 且 $b \in B$，于是 $A \times B = \{(a,b)|a \in A \land b \in B\}$  
+>
+> **定义九** 集合 $A_1, A_2, \dots, A_n$ 的笛卡尔积用 $A_1 \times A_2 \times \dots \times A_n$ 表示，是有序 n 元组 $(a_1, a_2, \dots, a_n)$ 的集合，其中 $a_i$ 属于 $A_i$，$i = 1, 2, \dots, n$。换言之，$A_1 \times A_2 \times \dots \times A_n = \{(a_1, a_2, \dots, a_n)|a_i\in A_i, i = 1, 2, \dots, n\}$  
+
+
+
+## 2. 集合运算
+
+### (1) 定义
+
+> **定义一** 令 $A$ 和 $B$ 是集合。集合 $A$ 和 $B$ 的**并集**用 $A\cup B$ 来表示，是一个集合，包含 $A$ 或 $B$ 或同时在 $A$ 和 $B$ 中的元素。  
+>
+> $A \cup B = \{x|x\in A \lor x \in B\}$  
+> 
+> **定义二** 令 $A$ 和 $B$ 是集合。集合 $A$ 和 $B$ 的**交集**用 $A\cap B$ 来表示，是一个集合，包含同时在 $A$ 和 $B$ 中的元素。  
+>
+> $A \cap B = \{x|x\in A \land x \in B\}$  
+
+> **定义三** 如果两个集合的交集是空集，则它们是不相交的。  
+
+> **定义四** 令 $A$ 和 $B$ 是集合。集合 $A$ 和 $B$ 的**差集**用 $A - B$  或 $A \setminus B$ 来表示，是一个集合，包含属于 $A$ 但不属于 $B$ 的元素，$A$ 和 $B$ 的差集也称为 $B$ 相对于 $A$ 的**补集**。  
+>
+> $A - B = \{x|x \in A \land x \notin B\}$  
+>
+> **定义五** 令 $U$ 为全集，集合 $A$ 的补集用 $\overline A$ 表示，是 $A$ 相对于 $U$ 的补集。
+>
+> $\overline A = \{x\in U | x \notin A\}$  
+
+
+
+### (2) 集合恒等式
+
+|   名称    |                            恒等式                            |
+| :-------: | :----------------------------------------------------------: |
+|  恒等律   |           $A\cap U = A \\ A \cup \varnothing = A$            |
+|  支配律   |      $A\cup U = U \\ A\cap \varnothing = \varnothing $       |
+|  幂等律   |                 $A\cup A =A \\ A \cap A = A$                 |
+|   补律    |                $\overline{(\overline A)} = A$                |
+|  交换律   |         $A \cup B = B \cup A \\ A \cap B = B \cap A$         |
+|  结合律   | $A \cup (B \cup C) = (A \cup B) \cup C \\ A \cap (B\cap C) = (A \cap B) \cap C$ |
+|  分配律   | $A \cup (B \cap C) = (A\cup B) \cap (A \cup C) \\ A \cap (B \cup C) = (A \cap B) \cup (A \cap C)$ |
+| 德·摩根律 | $\overline {A \cap B} = \overline A \cup \overline B \\ \overline {A \cup B} = \overline A \cap \overline B$ |
+|  吸收律   |       $A\cup (A \cap B) = A \\ A \cap (A \cup B) = A$        |
+|  互补律   | $A \cup \overline A = U \\ A \cap \overline A = \varnothing $ |
+
+
+
+>  **定义六** 一组集合的并集是包含那些至少是这组集合中一个集合成员的元素的集合。
+>
+> $A_1 \cup A_2 \cup \dots \cup A_n = \underset{i=1}{\overset{n}{\bigcup}} A_i$  
+>
+> **定义七** 一组集合的交集是包含那些属于这组集合中所有成员集合的元素的集合。
+>
+> $A_1 \cap A_2 \cap \dots \cap A_n = \underset{i=1}{\overset{n}{\bigcap}} A_i$  
+
+
+
+### (3) 函数
+
+> **定义一** 令 $X$ 和 $Y$ 是非空集合。从 $X$ 映射到 $Y$ 的函数 $f$ 是 $X$ 与 $Y$ 笛卡尔积 $X \times Y$ 的子集，$X$ 中任意 $x$ 都与 $Y$ 中的 $y$ 唯一对应，且有序对 $(x, y)$   属于 $f$  
+
+函数也称为**映射(mapping)**或**变换(transformation)**  
+
+
+
+> **定义二** 如果 $f$ 是从 $X$ 到 $Y$ 的函数，我们说 $X$ 是 $f$ 的**定义域(domain)**，$Y$ 是 $f$ 的**陪域(codomain)**，如果 $f(x) = y$，则称 $b$ 是 $a$ 的**像(image)**，$a$ 为 $b$ 的**原像(pre-image)**。$f$ 的**值域(range)** 为 $\{y|y=f(x)\}$，也就是 $X$   中元素所有像的集合。  
+
+> **定义三** 令 $f_1$ 和 $f_2$ 是从 $X$ 到 $\mathbf R$ 的函数， 那么 $f_1 + f2$ 和 $f_1 f_2$ 也是从 $X$ 到 $\mathbf R$ 的函数，其定义对于任意 $x\in X$  
+>
+> **定义四** 令 $f$ 是从 $X$ 到 $Y$ 的函数，令 $S$ 是 $X$ 的一个子集。$S$ 在函数 $f$ 下的像是由 $S$ 中的元素的像组成 $Y$ 的子集。我们用 $f(S)$ 表示 $S$ 的像，于是 
+>
+> $f(S) = \{t|\exist s \in S\}$  
+
+> **定义五** 函数 $f$ 是一对一的或**单射函数**(injection)，当且仅当对于 $f$ 的定义域中所有的 $a$ 和 $b$  有 $f(a) = f(b)$ 蕴含 $a = b$  
+>
+> **定义六** 对于定义域和陪域都是实数集子集的函数 $f$，如果定义域中的 $x$ 和 $y$，当 $x < y$ 时有 $f(x) \le f(y)$，称为 $f$ 是递增的；如果 $x < y$ 时有 $f(x) < f(y)$，称为是严格递增的。类似地，如果 $x < y$ 时有 $f(x) \ge f(y)$，称为是递减的；如果 $x < y$ 时有 $f(x) > f(y)$ 称为是严格递减的。  
+>
+> **定义七** 一个从 $X$ 到 $Y$ 的函数 $f$ 称为**映上**(onto)或**满射函数**(surjection)，当且仅当对每个 $y \in Y$ 有元素 $x \in X$ 使得 $f(x) = y$，即值域就是其陪域。  
+>
+> **定义八** 既是单射又是满射的函数叫做**双射函数**(bijection)。  
+
+> **定义九** 令 $f$ 为从集合 $X$ 到 $Y$ 的一一对应，对每一个 $x\in X$ 有 $g(f(x)) = x$，则称 $g$ 为 $f$ 的反函数，记之为 $f^{-1}$ 
+>
+> 如果 $f$ 存在反函数，$f$ 是一一对应的，即 $f$ 是双射函数，也称 $f$ 是**可逆的**。否则，$f$ 是不可逆的。  
+
+> **定义十** 令 $g$  是从集合 $X$ 到 $Y$ 的函数，$f$ 是从 $Y$ 到 $Z$ 的函数，函数 $f$ 和 $g$ 的合成(composition) 记作 $f \circ g$，定义对任意的 $x \in X$ 有 $(f \circ g)(x) = f(g(x))$  
+
+> **定义十一** 令 $f$ 是从集合 $X$ 到 $Y$ 的函数，函数 $f$ 的图像是序偶集合 $\{(x,y) | x\in X \land f(x) = y \}$  
+
+> **定义十二** 
+>
+> 向下取整函数(floor) $\lfloor x \rfloor =$  小于或等于 $x$ 的最大整数；向上取整函数(ceiling) $\lceil x \rceil = $ 大于或等于 $x$ 的最小整数  
+>
+> 阶乘函数 $f(x) = x! = 1*2*\dots*(n-1)*n$ 并且 $f(0) = 0! = 1$  
+
+> **定义十三** 一个从集合 $X$ 到 $Y$ 的**部分函数**(partial function) $f$ 是给 $X$ 的一个子集(成为 $f$ 的定义域) 中的每个元素 $x$ 都映射到唯一一个 $Y$ 中的元素 $y$。集合 $X$ 和 $Y$ 分别称为 $f$ 的定义域和陪域。当 $f$ 对于在 $X$ 中但不在 $f$ 定义域中的元素称为无定义(undefined)。当 $f$ 的定义域等于 $X$ 时，称 $f$ 为全函数(total function)。  
 
