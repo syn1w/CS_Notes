@@ -160,9 +160,9 @@ $$\lnot (p \lor q) \equiv \lnot p \land \lnot q$$
 
 ### (1) 谓词(Predicate)
 
-谓词表明语句主语是否满足一个性质，比如 `x > 3`，其中 `x` 是语句的主语，谓词 `> 3` 表明主语是否满足某个特性。  
+谓词表明语句主语是否满足一个性质，比如 $x > 3$，其中 $x$ 是语句的主语，谓词 $>3$ 表明主语是否满足某个特性。  
 
-可以使用 `P(x)` 来表示 `x > 3`，其中 `P` 表示谓词 `> 3`，而 `x` 是变量。一旦给 `x` 赋一个值，语句 `P(x)` 就称为命题并具有真值。  
+可以使用 $P(x)$ 来表示 $x > 3$，其中 $P$ 表示谓词 $>3$，而 $x$ 是变量。一旦给 $x$ 赋一个值，语句 $P(x)$ 就称为命题并具有真值。  
 
 形式为 $P(x_1,\;x_2,\;\dots,\;x_n)$  的语句是命题函数 $P$ 在 n 元组 $(x_1,\;x_2,\;\dots,\;x_n)$ 的值，$P$ 也称为 **n 元谓词**或 n 位谓词。  
 
@@ -476,4 +476,97 @@ $$\begin{align} \lnot \forall x \;\exist y \; (xy = 1) & = \exist x\;\lnot \exis
 > 阶乘函数 $f(x) = x! = 1*2*\dots*(n-1)*n$ 并且 $f(0) = 0! = 1$  
 
 > **定义十三** 一个从集合 $X$ 到 $Y$ 的**部分函数**(partial function) $f$ 是给 $X$ 的一个子集(成为 $f$ 的定义域) 中的每个元素 $x$ 都映射到唯一一个 $Y$ 中的元素 $y$。集合 $X$ 和 $Y$ 分别称为 $f$ 的定义域和陪域。当 $f$ 对于在 $X$ 中但不在 $f$ 定义域中的元素称为无定义(undefined)。当 $f$ 的定义域等于 $X$ 时，称 $f$ 为全函数(total function)。  
+
+
+
+## 3. 序列和求和
+
+### (1) 序列
+
+> **定义一** 序列是从一个整数集的一个子集，到一个集合 $S$ 的函数，用记号 $a_n$ 表示整数 $n$ 的像，称 $a_n$ 为序列的一个项(term)。  
+
+> **定义二** 几何级数(等比序列)是形如 $a, ar, ar^2, \dots, ar^n, \dots$ 的序列，其中初始项 $a$ 和公比 $r$ 都是实数  
+>
+> **定义三** 算术级数(等差序列)是形如 $a, a+1, a+2d, \dots, a+nd, \dots$ 的序列，其中 $a$ 和公差 $d$ 都是实数  
+
+> **定义四** 递推序列是一种递推地定义的一个序列，序列的每一项目是定义为前一项的函数  
+>
+> **定义五** 斐波那契数列 $f_0, f_1, f_2, \dots $，$f_n = \begin{cases} 0 & if\;n == 0 \\ 1 & if \; n == 1 \\ (f_{n-1} + f_{n-2}) & if\; n >= 2  \end{cases}$  
+
+当我们为为序列的项找到一个显式公式，称为**闭公式**(closed formula)。  
+
+
+
+### (2) 求和
+
+考虑序列项累加问题，引入**求和符号** $\sum$   
+
+我们用记号 $\underset{j=m}{\overset{n}{\sum}} a_j$ 或 $\underset{m\le j \le n}{\sum} a_j$ 表示 $a_m + a_{m+1} + \dots + a_n$   
+
+有用的求和公式
+
+
+
+|                           和                            |               闭形式               |
+| :-----------------------------------------------------: | :--------------------------------: |
+|   $\underset{k=0}{\overset{n}{\sum }} ar^k (r \ne 0)$   | $\dfrac{ar^{n+1}-a}{r-1}, r \ne 1$ |
+|          $\underset{k=1}{\overset{n}{\sum}}k$           |        $\dfrac {n(n+1)}{2}$        |
+|         $\underset{k=1}{\overset{n}{\sum}}k^2$          |     $\dfrac {n(n+1)(2n+1)}{6}$     |
+|         $\underset{k=1}{\overset{n}{\sum}}k^3$          |      $\dfrac{n^2(n+1)^2}{4}$       |
+|  $\underset{k=0}{\overset{\infty}{\sum}}x^k, |x| < 1$   |         $\dfrac {1}{1-x}$          |
+| $\underset{k=1}{\overset{\infty}{\sum}}kx^{k-1}, |x|<1$ |       $\dfrac {1}{(1-x)^2}$        |
+
+
+
+
+
+## 4. 集合的基数
+
+> **定义一** 集合 $A$ 和集合 $B$ 有相同的**基数**(cardinality)，当且仅当存在从 $A$ 到 $B$ 的一个一一对应，当 $A$ 和 $B$ 具有相同的基数时，就写成 $|A| = |B|$ 
+>
+> **定义二** 如果存在一个从 $A$ 到 $B$ 的一对一函数，则 $A$ 的基数小于等于 $B$ 的基数，写成 $|A| \le |B|$，并且 $A$ 和 $B$ 有不同的基数时，说 $A$ 的基数小于 $B$ 的基数，写成 $|A| < |B|$  
+
+> **定义三** 一个集合是有限集或者与自然数集合具有相同的基数，这个集合称为是**可数的**。一个集合不是可数的，就称为不可数的。如果一个无限集 $S$ 是可数的，用符号 $\aleph_0$  来表示集合 $S$ 的基数，这里 $\aleph$ 是阿列夫，希伯来语字母表的第一个字母。写作 $|S| = \aleph_0$ 
+
+关于 $\aleph_0$  一个有趣的科普视频 [怎样数到无限之后？](https://www.bilibili.com/video/av4369007)  
+
+
+
+> **定理一** 如果 $A$ 和 $B$ 是可数集合，则 $A \cup B$ 也是可数集合  
+>
+> **定理二**  **Schröder–Bernstein theorem 定理** 如果 $A$ 和 $B$ 是集合且 $|A|\le |B|$ 和 $|B|\le |A|$，则 $|A|=|B|$。换言之，如果存在一对一函数 $f$ 从 $A$ 到 $B$ 和 $g$ 从 $B$ 到 $A$，则存在 $A$ 和 $B$ 之间的一一对应函数。  
+
+> **定义四** 一个函数称为是**可计算的**，如果存在某种编程语言写的计算机程序能够计算该函数的值。如果一个函数不是可计算的，就说是**不可计算的**。  
+
+
+
+
+
+## 5. 矩阵
+
+> **定义一** **矩阵(matrix)**是矩形状的数组，$m$ 行 $n$ 列的数组被称为 $m \times n$ 矩阵  
+>
+> **定义二** 令 $m$ 和 $n$ 是正整数，并令 $\mathbf A = \left [\begin{matrix}   a_{11} & a_{12} & \cdots & a_{1n} \\ a_{21} & a_{22} & \cdots & a_{2n} \\ \vdots & \vdots & \; & \vdots \\ a_{m1} & a_{m2} & \cdots & a_{mn} \end{matrix}   \right ]$  
+>
+> **定义三** 令 $\mathbf A = [a_{ij}]$ 和 $\mathbf B=[b_{ij}]$ 为 $m \times n$ 矩阵，$\mathbf A$ 和 $\mathbf B$ 的和记作 $\mathbf A + \mathbf B$，其中 $(i, j)$ 元素为 $a_{ij} + b_{ij}$ 的矩阵。换言之，$\mathbf A + \mathbf B = [a_{ij} + b_{ij}]$  
+>
+> **定义四** 令 $\mathbf A$ 为 $m \times k$ 矩阵，$\mathbf B$ 为 $k \times n$ 矩阵，$\mathbf A$ 和 $\mathbf B$ 的乘积记作 $\mathbf{AB}$，是一个 $m \times n$ 的矩阵，其中 $(i,j)$ 元素等于 $\mathbf A$ 的第 $i$ 行于 $\mathbf B$ 的第 $j$ 列对应元素的乘积之和。换言之，如果 $\mathbf{AB} = [c_{ij}]$，则 $c_{ij} = a_{i1}b_{1j} + a_{i2}b_{2j} + \cdots + a_{ik}b_{kj}$  
+>
+> **定义五** **n阶单位矩阵(identity matrix of order n)** 是 $n\times n$ 矩阵 $\mathbf I_n=[\delta_{ij}]$，如果 $i=j$，$\delta_{ij} =1$；如果 $i \ne j$， $\delta_{ij} =0$，也就是 $\mathbf I_n = \left [ \begin{matrix} 1 & 0 & \cdots & 0 \\ 0 & 1 & \cdots & 0 \\ \vdots & \vdots & \; & \vdots \\ 0 & 0 & \cdots & 1 \end {matrix} \right ]$  
+
+$\mathbf{AI_n} = \mathbf{I_mA} = \mathbf{A}$  
+
+> **定义六** 令 $\mathbf{A} = [a_{ij}]$  为 $m \times n$ 矩阵，$\mathbf{A}$ 的**转置**(transpose)矩阵记作 $\mathbf{A}^T$，交换行列得到的 $n \times m$ 矩阵。$\mathbf{A}^T = [b_{ij}]$，其中 $b_{ij} = a_{ji},\; i = 1,2, \dots, n; j=1, 2, \dots, m$  
+>
+> **定义七** 方阵 $\mathbf{A}$ 称为是**对称的**(symmetric)如果 $\mathbf{A} = \mathbf{A}^T$  
+
+
+
+所有元素非 0 即 1 的矩阵称为 **0-1 矩阵**  
+
+> **定义八** 令 $\mathbf{A}$ 和 $\mathbf{B}$ 分别为 $m \times n$  阶的 0-1 矩阵。$\mathbf{A} \lor \mathbf{B} = [a_{ij} \lor b_{ij}]$，$\mathbf{A} \land \mathbf{B} = a_{ij} \land b_{ij}$  
+>
+> **定义九** 令 $\mathbf{A}$ 为 $m \times k$ 阶 0-1 矩阵，$\mathbf{B}$ 是 $k \times n$ 阶 0-1 矩阵，$\mathbf{A}$ 和 $\mathbf{B}$ 的布尔积记作 $\mathbf{A} \bigodot \mathbf{B}$ ，是$m \times n$ 矩阵 $[c_{ij}]$，其中 $c_{ij} = (a_{i1} \land b_{1j}) \lor (a_{i2} \land b_{2j}) \lor \cdots \lor (a_{ik} \land b_{kj})$  
+>
+> **定义十** 令 $\mathbf{A}$ 为 0-1 方阵，$r$ 为正整数，$\mathbf{A}$ 的 $r$ 次布尔幂是 $r$ 个 $\mathbf{A}$  的布尔积，记作 $\mathbf{A}^{[r]}$  
 
