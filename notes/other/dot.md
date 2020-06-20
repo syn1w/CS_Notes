@@ -67,7 +67,7 @@ digraph G {
 具体的例子：
 
 ```dot
-digraph action {
+digraph G {
     node [shape = record,height=.1];
 
     node0 [label = "<head> head|<body> body|<foot> foot", height=.5]
@@ -92,11 +92,115 @@ digraph action {
 
 
 
+注释类似于 C/C++ 的注释，`//` 和 `/* */`  
+
+`;` 和 `,` 都不是必须的，可以使用 whitespace 代替  
+
+`\` 类似与 C/C++，表示换行  
+
+
+
+
+
+# 四、属性
+
+所有的属性可以见[文档](https://graphviz.gitlab.io/_pages/doc/info/attrs.html)  
+
+接下来学习使用常用的属性  
+
+|    属性名     |                             说明                             |
+| :-----------: | :----------------------------------------------------------: |
+|  **charset**  |                     编码，一般设置 UTF-8                     |
+| **fontname**  | 字体名称，这个在中文的情况需要设置，否则导出图片的时候会乱码 |
+| **fontcolor** |                           字体颜色                           |
+| **fontsize**  |                    字体大小，用于文本内容                    |
+| **fillcolor** |         用于填充节点或者群组 (cluster) 的背景颜色。          |
+|   **size**    |                     图形的最大宽度和高度                     |
+|   **label**   |                       图形上的文本标记                       |
+|  **margin**   |                        设置图形的边距                        |
+|    **pad**    | 指定将绘制区域扩展到绘制图形所需的最小区域的长度（以英寸为单位） |
+|   **style**   |                    设置图形组件的样式信息                    |
+|  **rankdir**  | 设置图形布局的排列方向 (全局只有一个生效). "TB", "LR", "BT", "RL", 分别对应于从上到下，从左到右，从下到上和从右到左绘制的有向图 |
+|  **ranksep**  |                以英寸为单位提供所需的排列间隔                |
+|   **ratio**   |                     设置生成图片的纵横比                     |
+
+`style` 可以选择的值和效果：
+
+节点 `style`：
+
+| style 值  |                             效果                             |
+| :-------: | :----------------------------------------------------------: |
+|   solid   | ![solid](https://graphviz.gitlab.io/_pages/doc/info/n_solid.png) |
+|  dashed   | ![dashed](https://graphviz.gitlab.io/_pages/doc/info/n_dashed.png) |
+|  dotted   | ![dotted](https://graphviz.gitlab.io/_pages/doc/info/n_dotted.png) |
+|   bold    |  ![](https://graphviz.gitlab.io/_pages/doc/info/n_bold.png)  |
+|  rounded  | ![rounded](https://graphviz.gitlab.io/_pages/doc/info/n_rounded.png) |
+| diagonals | ![](https://graphviz.gitlab.io/_pages/doc/info/n_diagonals.png) |
+|  filled   | ![filled](https://graphviz.gitlab.io/_pages/doc/info/n_filled.png) |
+|  striped  | ![striped](https://graphviz.gitlab.io/_pages/doc/info/n_striped.png) |
+|  wedged   | ![wedged](https://graphviz.gitlab.io/_pages/doc/info/n_wedged.png) |
+
+
+
+边 `style`：
+
+| style 值 |                             效果                             |
+| :------: | :----------------------------------------------------------: |
+|  solid   | ![solid](https://graphviz.gitlab.io/_pages/doc/info/e_solid.png) |
+|  dashed  | ![dashed](https://graphviz.gitlab.io/_pages/doc/info/e_dashed.png) |
+|  dotted  | ![style](https://graphviz.gitlab.io/_pages/doc/info/e_dashed.png) |
+|   bold   | ![bold](https://graphviz.gitlab.io/_pages/doc/info/e_bold.png) |
+
+
+
+`cluster style`：
+
+| style 值 |                             效果                             |
+| :------: | :----------------------------------------------------------: |
+|  solid   | ![solid](https://graphviz.gitlab.io/_pages/doc/info/c_solid.png) |
+|  dashed  | ![dashed](https://graphviz.gitlab.io/_pages/doc/info/c_dashed.png) |
+|  dotted  | ![dotted](https://graphviz.gitlab.io/_pages/doc/info/c_dotted.png) |
+|   bold   | ![bold](https://graphviz.gitlab.io/_pages/doc/info/c_bold.png) |
+|   ...    |                             ...                              |
+
+
+
+## 1. 节点
+
+默认的节点属性是 `shape=ellipse,width=.75,height=.5` 并且 `lable` 是节点名  
+
+一个图中可能有非常多的 node 和 edge，可以事先声明一个公共的属性，比如 
+
+```dot
+digraph G {
+    node [shape=box color=blue];
+    edge [color=red];
+}
+```
+
+节点常用的属性：
+
+|      属性名       |                             说明                             |
+| :---------------: | :----------------------------------------------------------: |
+|     **shape**     | 具体见[这里](https://graphviz.gitlab.io/_pages/doc/info/shapes.html)，常用有 `box, circle, ellipse,plaintext,square` |
+| **width, height** | 图形的宽度和高度，如果设置了 **fixedsize** 为 true，则宽和高为最终的长度 |
+|   **fixedsize**   |    如果为 false，节点的大小由其文本内容所需要的最小值决定    |
+|     **rank**      | 子图中节点上的排列等级约束。最小等级是最顶部或最左侧，最大等级是最底部或最右侧。 |
+
+
+
+## 2. 边
+
+
+
+
 
 
 # 附录 A 参考资料
 
 [DOT语言 wiki](https://zh.wikipedia.org/zh-hans/DOT语言)
+
+https://graphviz.gitlab.io/doc/info/lang.html
 
 https://www.graphviz.org/pdf/dotguide.pdf
 
