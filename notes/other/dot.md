@@ -11,6 +11,7 @@ Clang 生成的 CFG、Exploded Graph 都是 DOT 格式的，应该更适合自�
 # 二、Hello World
 
 ```dot
+// hello.dot
 digraph G {
     Hello -> World;
     hello -> DOT;
@@ -18,6 +19,16 @@ digraph G {
 ```
 
 ![hello](../../imgs/dot/hello.png)  
+
+```sh
+# -Tpng Set output format to 'png'
+# -O Automatically generate an output filename based on the input filename
+# -o 
+dot -Tpng -O hello.dot
+dot -Tpng -o hello.png hello.dot
+```
+
+
 
 
 
@@ -64,14 +75,14 @@ digraph G {
 
 *compass_pt* 具体指箭头从哪个位置指向哪个位置  
 
-具体的例子：
+例 3.1：  
 
 ```dot
 digraph G {
     node [shape = record,height=.1];
 
-    node0 [label = "<head> head|<body> body|<foot> foot", height=.5]
-    node2 [shape = box label="mind"]
+    node0 [label = "<head> head|<body> body|<foot> foot", height=.5];
+    node2 [shape = box label="mind"];
 
     node0:head:n -> node2:n [label = "n"]
     node0:head:ne -> node2:ne [label = "ne"]
@@ -100,13 +111,30 @@ digraph G {
 
 
 
+例 3.2：  
+
+```dot
+digraph G {
+    main -> parse -> execute;
+    main -> init;
+    main -> cleanup;
+    execute -> make_string;
+    execute -> printf
+    init -> make_string;
+    main -> printf;
+    execute -> compare;
+}
+```
+
+![example3_2](../../imgs/dot/example3_2.png)  
+
 
 
 # 四、属性
 
 所有的属性可以见[文档](https://graphviz.gitlab.io/_pages/doc/info/attrs.html)  
 
-接下来学习使用常用的属性  
+接下来学习使用常用的公共属性  
 
 |    属性名     |                             说明                             |
 | :-----------: | :----------------------------------------------------------: |
@@ -182,14 +210,65 @@ digraph G {
 
 |      属性名       |                             说明                             |
 | :---------------: | :----------------------------------------------------------: |
-|     **shape**     | 具体见[这里](https://graphviz.gitlab.io/_pages/doc/info/shapes.html)，常用有 `box, circle, ellipse,plaintext,square` |
+|     **color**     |                       绘制图像轮廓颜色                       |
+|     **shape**     | 具体见[这里](https://graphviz.gitlab.io/_pages/doc/info/shapes.html)，常用有 `box, circle, ellipse, plaintext, square` 等等 |
 | **width, height** | 图形的宽度和高度，如果设置了 **fixedsize** 为 true，则宽和高为最终的长度 |
 |   **fixedsize**   |    如果为 false，节点的大小由其文本内容所需要的最小值决定    |
+|     **sides**     |              如果 `shape=polygon` 时，边的数量               |
 |     **rank**      | 子图中节点上的排列等级约束。最小等级是最顶部或最左侧，最大等级是最底部或最右侧。 |
 
 
 
 ## 2. 边
+
+|    属性名     |                             说明                             |
+| :-----------: | :----------------------------------------------------------: |
+| **arrowhead** |         箭头种类，`box, diamond, curve, normal, dot`         |
+| **arrowsize** |                    箭头大小，double 类型                     |
+|   **color**   | 绘制边的形状，有两种情况。color 的情况单色边，color list 可以有多种颜色，见下面例4.2.1 |
+|    **dir**    |                 `both, forward, back, none`                  |
+|    **len**    |                     边的长度，用英尺表示                     |
+|  **weight**   |        边的权重，权重越大，边越短且越垂直，必须是整数        |
+
+
+
+例 4.2.1  
+
+```dot
+// edge color list
+digraph G {
+    a -> b [dir=both, color="red:blue"];
+    c -> d [dir=none, color="green:red;0.25:blue"];
+}
+```
+
+![edge_color_list](https://graphviz.gitlab.io/_pages/doc/info/colorlist.gif) 
+
+`a->b` 是画了两条不同颜色平行线条，向下箭头颜色是第一种颜色，向上箭头是第二种，如果再添加颜色箭头颜色不会改变，仅仅增加一条平行的该颜色线条  
+
+
+
+例 4.2.2  
+
+```dot
+digraph G {
+    size ="4,4";
+    main [shape=box];
+    main -> parse [weight=8];
+    parse -> execute;
+    main -> init [style=dotted];
+    main -> cleanup;
+    execute -> { make_string; printf}
+    init -> make_string;
+    edge [color=red]; // so is this
+    main -> printf [style=bold,label="100 times"];
+    make_string [label="make a\nstring"];
+    node [shape=box,style=filled,color=".7 .3 1.0"];
+    execute -> compare;
+}
+```
+
+![example4_2_2](../../imgs/dot/example4_2_2.png)
 
 
 
