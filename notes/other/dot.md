@@ -219,6 +219,116 @@ digraph G {
 
 
 
+例 4.1.1  
+
+```dot
+digraph {
+    a[shape=polygon,sides=5,peripheries=3,style=filled,color=lightblue]
+    c[shape=polygon,sides=4,skew=.4,label="hello world"]
+    d[shape=invtriangle]
+    a -> b -> c
+    b -> d
+    e[shape=polygon,sides=4,distortion=.7]
+}
+```
+
+![example4_1_1](../../imgs/dot/example4_1_1.png)  
+
+
+
+例 4.1.2  
+
+```dot
+digraph structs {
+    node [shape=record];
+    struct1 [shape=record,label="<f0> left|<f1> mid\ dle|<f2> right"];
+    struct2 [shape=record,label="<f0> one|<f1> two"];
+    struct3 [shape=record,label="hello\nworld |{ b |{c|<here> d|e}| f}| g | h"];
+    struct1 -> struct2;
+    struct1 -> struct3;
+}
+```
+
+![example4_1_2](../../imgs/dot/example4_1_2.png)
+
+例 4.1.3  
+
+```dot
+// HTML label
+digraph html {
+    abc [shape=none, margin=0, label=<
+    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">
+    <TR><TD ROWSPAN="3"><FONT COLOR="red">hello</FONT><BR/>world</TD>
+    <TD COLSPAN="3">b</TD>
+    <TD ROWSPAN="3" BGCOLOR="lightgrey">g</TD>
+    <TD ROWSPAN="3">h</TD>
+    </TR>
+    <TR><TD>c</TD>
+    <TD PORT="here">d</TD>
+    <TD>e</TD>
+    </TR>
+    <TR><TD COLSPAN="3">f</TD>
+    </TR>
+    </TABLE>>];
+}
+```
+
+![example4_1_3](../../imgs/dot/example4_1_3.png)
+
+
+
+例 4.1.4  
+
+```dot
+digraph tree {
+    bgcolor="beige"
+    node [shape="record", height=.1]
+    node0[label="<f0> | <f1> G | <f2>"]
+    node1[label="<f0> | <f1> E | <f2>"]
+    node2[label="<f0> | <f1> B | <f2>"]
+    node0:f0 -> node1:f1
+    node0:f2 -> node2:f1
+}
+// | 隔开的串会在绘制出的节点多一条分隔符，<> 括起来的串称为锚点 
+```
+
+![example4_1_4](../../imgs/dot/example4_1_4.png)  
+
+
+
+例 4.1.5  
+
+```dot
+// 哈希表样例 
+digraph G {
+    nodesep=.05;
+    rankdir=LR;
+    
+    node [shape=record,width=.1,height=.1];
+    node0 [label = "<f0> |<f1> |<f2> |<f3> |<f4> |<f5> |<f6> | ",height=2.5];
+
+    node [width = 1.5];    
+    node1 [label = "{<n> n14 | 719 |<p> }"];
+    node2 [label = "{<n> a1 | 805 |<p> }"];
+    node3 [label = "{<n> i9 | 718 |<p> }"];
+    node4 [label = "{<n> e5 | 989 |<p> }"];
+    node5 [label = "{<n> t20 | 959 |<p> }"] ;
+    node6 [label = "{<n> o15 | 794 |<p> }"] ;
+    node7 [label = "{<n> s19 | 659 |<p> }"] ;
+    node0:f0 -> node1:n;
+    node0:f1 -> node2:n;
+    node0:f2 -> node3:n;
+    node0:f5 -> node4:n;
+    node0:f6 -> node5:n;
+    node2:p -> node6:n;
+    node4:p -> node7:n;
+}
+```
+
+![example4_1_5](../../imgs/dot/example4_1_5.png)  
+
+
+
 ## 2. 边
 
 |    属性名     |                             说明                             |
@@ -270,6 +380,44 @@ digraph G {
 
 ![example4_2_2](../../imgs/dot/example4_2_2.png)
 
+## 3. 子图
+
+**subgraph** 必须搭配 **cluster** 一起使用，使用 `subgraph cluster*`   
+
+例 4.3.1  
+
+```dot
+digraph G {
+    subgraph cluster0 {
+        node [style=filled,color=white];
+        style=filled;
+        color=lightgrey;
+        a0 -> a1 -> a2 -> a3;
+        label = "process #1";
+    }
+    subgraph cluster1 {
+        node [style=filled];
+        b0 -> b1 -> b2 -> b3;
+        label = "process #2";
+        color=blue
+    }
+    
+    start -> a0;
+    start -> b0;
+    a1 -> b3;
+    b2 -> a3;
+    a3 -> a0;
+    a3 -> end;
+    b3 -> end;
+    start [shape=Mdiamond];
+    end [shape=Msquare];
+}
+```
+
+![example4_3_1](../../imgs/dot/example4_3_1.png)  
+
+
+
 
 
 
@@ -286,4 +434,6 @@ https://www.graphviz.org/pdf/dotguide.pdf
 https://www.cnblogs.com/shuqin/p/11897207.html
 
 https://github.com/uolcano/blog/issues/13
+
+[样式及颜色的博客](https://www.cnblogs.com/shinianhuanniyijuhaojiubujian/p/9134519.html)
 
