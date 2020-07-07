@@ -204,5 +204,141 @@ man syscalls(2)
 
 
 
+# 四、文件 I/O：通用的 I/O 模型
+
+## 1. 概述
+
+UNIX 的一个核心思想是一切皆文件：所有执行 I/O 操作的系统调用都以文件描述符，一个非负整数（通常是小整数），来指代打开的文件，文件描述符用以表示所有类型的已打开文件，包括 pipe、FIFO、 socket、终端、设备和普通文件。针对每个进程，文件描述符都自成一套  
+
+
+
+## 2. open
+
+```c
+#include <sys/stat.h>
+#include <fcntl.h>
+
+int open(const char *pathname, int flags, ... /* mode_t mode */);
+
+// return the new file descriptor(a nonnegative integer)
+// or -1 if an error occurred (in which case, errno is set appropriately)
+```
+
+|     flags     |                             用途                             |
+| :-----------: | :----------------------------------------------------------: |
+|  `O_RDONLY`   |                         只读方式打开                         |
+|  `O_WRONLY`   |                         只写方式打开                         |
+|   `O_RDWR`    |                         读写方式打开                         |
+|  `O_CLOEXEC`  |     设置 close-on-exec 标志（自 Linux 2.6.23 版本开始）      |
+|   `O_CREAT`   |                     若文件不存在则创建之                     |
+|  `O_DIRECT`   |                      无缓冲的输入/输出                       |
+| `O_DIRECTORY` |               如果 `pathname` 不是目录，则失败               |
+|   `O_EXCL`    | 确保调用创建文件，如果和 `O_CREAT` 一起使用，如果目录存在，`open` 失败且 `errno` 为 `EEXIST` |
+| `O_LARGEFILE` |              在 32 位系统中使用此标志打开大文件              |
+|  `O_NOATIME`  |          调用 `read()` 时， 不修改文件最近访问时间           |
+|  `O_NOCTTY`   |      不要让 `pathname`（所指向的终端设备）成为控制终端       |
+| `O_NOFOLLOW`  |                     对符号链接不予解引用                     |
+|   `O_TRUNC`   |                  截断已有文件，使其长度为零                  |
+|  `O_APPEND`   |                     总在文件尾部追加数据                     |
+|   `O_ASYNC`   |        当 I/O 操作可行时，产生信号（ signal）通知进程        |
+|   `O_DSYNC`   |    提供同步的 I/O 数据完整性（自 Linux 2.6.33 版本开始）     |
+| `O_NONBLOCK`  |                       以非阻塞方式打开                       |
+|   `O_SYNC`    |                      以同步方式写入文件                      |
+
+
+
+## 3. creat
+
+```c
+#include <fcntl.h>
+
+int creat(const char *pathname, mode_t mode);
+
+// return the new file descriptor(a nonnegative integer)
+// or -1 if an error occurred (in which case, errno is set appropriately)
+```
+
+
+
+## 4. read
+
+```c
+#include <unistd.h>
+
+ssize_t read(int fd, void *buffer, size_t count);
+
+// On success, the number of bytes read is returned (zero 
+// indicates end of file)
+// On error, -1 is returned, and errno is set appropriately
+```
+
+
+
+## 5. write
+
+```c
+#include <unistd.h>
+
+ssize_t write(int fd, void *buffer, size_t count);
+
+// On success, the number of bytes written is returned
+// On error, -1 is returned, and 
+// errno is set to indicate the cause of the error
+```
+
+`read` 和 `write` 的返回值，即读取或写入的字节数可能小于 `count` 值
+
+
+
+## 6. close
+
+`close` 系统调用关闭一个打开的文件描述符，并将其释放回调用进程，供该进程继续使用  
+
+当一进程终止时，将自动关闭其已打开的所有文件描述符  
+
+```c
+#include <unistd.h>
+
+int close(int fd);
+
+// returns zero on success
+// On error, -1 is returned, and errno is set appropriately.
+```
+
+
+
+## 7. lseek
+
+对于每个打开的文件，系统内核会记录其文件偏移量，有时也将文件偏移量称为读写偏移量或指针。文件偏移量是指执行下一个 read()或 write()操作的文件起始位置，会以相对于文件头部起始点的文件当前位置来表示。文件第一个字节的偏移量为 0  
+
+```c
+#include <unistd.h>
+
+off_t lseek(int fd, off_t offset, int whence);
+
+// returns the resulting offset location as measured in 
+// bytes from the beginning of the file
+// On error, the value (off_t) -1 is returned and 
+// errno is set to indicate the error.
+```
+
+`lseek` 调用依照 `offset` 和 `whence` 参数值调整该文件的偏移量  
+
+|  `whence`  |                             含义                             |
+| :--------: | :----------------------------------------------------------: |
+| `SEEK_SET` |   将文件偏移量设置为从文件头部起始点开始的 `offset` 个字节   |
+| `SEEK_CUR` |              将当前文件偏移量 + `offset` 个字节              |
+| `SEEK_END` | 将文件偏移量设置为起始于文件尾部的 `offset `个字节，文件尾之后未写数据的字节 |
+
+
+
+**文件空洞**  
+
+如果文件的偏移量已经跨越了文件结尾，然后执行I/O 操作，如果是 `read` 将会返回 0；但是 `write` 函数可以在文件结尾的任意位置写入数据  
+
+从文件结尾后到新写入数据间的这段空间被称为文件空洞  
+
+文件空洞不占用任何磁盘空间。直到后续某个时点，在文件空洞中写入了数据，文件系统才会为之分配磁盘块。核心转储文件（ core dump）是包含空洞文件的常见例子  
+
 
 
