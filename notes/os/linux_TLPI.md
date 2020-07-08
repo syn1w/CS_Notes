@@ -342,3 +342,161 @@ off_t lseek(int fd, off_t offset, int whence);
 
 
 
+# 五、深入探究文件 I/O
+
+## 1. 原子操作和竞争条件
+
+所有系统调用都是以原子操作方式执行的。内核保证了某系统调用中的所有步骤会作为独立操作而一次性加以执行，其间不会为其他进程或线程所中断  
+
+竞争状态：操作共享资源的两个进程（或线程），其结果取决于一个无法预期的顺序，即这些进程或线程获得 CPU 使用权的先后相对顺序  
+
+**例一**：  
+
+```c
+// open 1: check if file exists
+int fd = open(argv[1], O_WRONLY);
+if (fd != -1) {
+    printf(...);
+    close(fd);
+} else {
+    if (errno != ENOENT) {
+        errExit("open");
+    } else {
+        // open 2: create file
+        fd = open(argv[1], O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+        if (fd == -1) {
+            errExit("open");
+        }
+        
+        printf(...);
+    }
+}
+```
+
+当第一次调用 `open` 时，希望打开的文件还不存在，而当第二次调用 `open` 时，其他进程已经创建了该文件  
+
+在这一场景下，进程 A 将得出错误的结论：目标文件是由自己创建的。因为无论目标文件存在与否，进程 A 对 `open` 的第二次调用都会成功  
+
+由于第一个进程在检查文件是否存在和创建文件之间发生了中断，造成两个进程都声称自己是文件的创建者。结合 `O_CREAT` 和 `O_EXCL` 标志来一次性地调用 `open` 可以防止这种情况，因为这确保了检查文件和创建文件的步骤属于一个单一的原子（即不可中断的）操作  
+
+
+
+**例二**：  
+
+多个进程同时向同一个文件（例如，全局日志文件）尾部添加数据  
+
+```c
+if (lseek(fd, 0, SEEK_END) == -1) {
+	errExit("lseek");
+}
+// ...
+if (write(fd, buf, len) != len) {
+    fatal(" write failed")
+}
+```
+
+和上一个例子一样，第一个进程执行到 `lseek` 和 `write` 之间，转而执行第二个进程的相同代码，这两个进程会在写入数据前，将文件偏移量设置为相同的位置，而当第一个进程再次获得调度时，会覆盖第二个进程已写入的数据  
+
+此时再次出现了竞争状态，因为执行的结果依赖于内核对两个进程的调度顺序  
+
+要规避这一问题，需要将文件偏移量的移动与数据写操作纳入同一原子操作。在打开文件时加入 O_APPEND 标志就可以保证这一点  
+
+
+
+## 2. fcntl
+
+`fcntl` 根据参数 `cmd` 执行一些控制操作  
+
+```c
+#include <unistd.h>
+#include <fcntl.h>
+
+int fcntl(int fd, int cmd, ... /* arg */ );
+```
+
+
+
+接下来会对各种操作进行讨论  
+
+
+
+## 3. 打开文件状态
+
+`cmd` 为 `F_GETFL` 获取文件的访问模式和文件状态，`arg` 参数被忽略  
+
+```c
+int flags = fcntl(fd, F_GETFL);
+if (flags == -1) {
+    errExit("fcntl");
+}
+
+// test O_SYNC file status
+if (flags & O_SYNC) {
+    printf("writes are synchronized\n");
+}
+
+int accessMode = flags & O_ACCMODE;
+if (accessMode == O_WRONLY || accessMode == O_RDWR) {
+    printf("file is writable\n");
+}
+```
+
+使用 `F_SETFL` 命令来修改打开文件的某些状态标志  
+
+允许修改的有 `O_APPEND, O_NONBLOCK, O_NOATIME, O_ASYNC, O_DIRECT`，系统会忽略其他标志的修改(有些 UNIX 实现允许修改其他标志，具体查文档)    
+
+```c
+int flags = fcntl(fd, F_GETFL);
+if (flags == -1) {
+    errExit("fcntl");
+}
+flags |= O_APPEND;
+if (fcntl(fd, F_SETFL, flags) == -1) {
+    errExit("fcntl");
+}
+```
+
+
+
+## 4. 文件描述符和打开文件的关系
+
+多个文件描述符可以指向同一打开文件  
+
+内核维护的3个数据结构：  
+
+- 进程级的文件描述符表 
+- 系统级的打开文件表  
+- 文件系统的 i-node 表  
+
+
+
+每个进程，内核为其维护打开文件的描述符（ open file descriptor）表。该表的每一条目都记录了单个文件描述符的相关信息  
+
+- 控制文件描述符操作的一组标志(目前只有 close-on-exec 标志)
+- 对打开文件句柄的引用
+
+
+
+内核对所有打开的文件维护有一个系统级的描述表格(open file description table)，并将表中各条目称为打开文件句柄（open file handle）。一个打开文件句柄存储了与一个打开文件相关的全部信息：  
+
+- 当前文件偏移量  
+- 打开文件时所使用的状态标志(`open` 的 `flags` 参数)  
+- 文件访问模式(`O_RDONLY, O_WRONLY, O_RDWR`)  
+- 与信号驱动 I/O 相关的设置  
+- 对该文件 i-node 对象的引用  
+
+
+
+每个文件系统都会为驻留其上的所有文件建立一个 i-node 表，每个文件的 i-node 信息    
+
+- 文件类型和访问权限  
+- 指向该文件所持有的锁的列表的指针  
+- 文件的各种属性，包括文件大小以及与不同类型操作相关的时间戳  
+
+
+
+上述可以推出：
+
+- 两个不同的文件描述符，若指向同一打开文件句柄(不是打开同一文件，而是指向同一打开文件句柄，比如使用 dup 复制)，将共享同一文件偏移量。因此，如果通过其中一个文件描述符来修改文件偏移量，那么从另一文件描述符中也会观察到这一变化。无论这两个文件描述符分属于不同进程，还是同属于一个进程，情况都是如此  
+- 要获取和修改打开的文件标志（例如，`O_APPEND`、 `O_NONBLOCK` 和 `O_ASYNC`），可执行 `fcntl` 的 `F_GETFL` 和 `F_SETFL` 操作，其对作用域的约束与上一条类似  
+- 文件描述符标志（亦即， close-on-exec 标志）为进程和文件描述符所私有  
