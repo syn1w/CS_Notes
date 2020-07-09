@@ -279,7 +279,7 @@ ssize_t read(int fd, void *buffer, size_t count);
 ```c
 #include <unistd.h>
 
-ssize_t write(int fd, void *buffer, size_t count);
+ssize_t write(int fd, const void *buffer, size_t count);
 
 // On success, the number of bytes written is returned
 // On error, -1 is returned, and 
@@ -500,3 +500,119 @@ if (fcntl(fd, F_SETFL, flags) == -1) {
 - 两个不同的文件描述符，若指向同一打开文件句柄(不是打开同一文件，而是指向同一打开文件句柄，比如使用 dup 复制)，将共享同一文件偏移量。因此，如果通过其中一个文件描述符来修改文件偏移量，那么从另一文件描述符中也会观察到这一变化。无论这两个文件描述符分属于不同进程，还是同属于一个进程，情况都是如此  
 - 要获取和修改打开的文件标志（例如，`O_APPEND`、 `O_NONBLOCK` 和 `O_ASYNC`），可执行 `fcntl` 的 `F_GETFL` 和 `F_SETFL` 操作，其对作用域的约束与上一条类似  
 - 文件描述符标志（亦即， close-on-exec 标志）为进程和文件描述符所私有  
+
+
+
+## 5. dup
+
+`dup` 复制一个打开的文件描述符  `oldfd`，并返回一个新描述符，二者都指向同一打开的文件句柄  
+
+系统会保证新描述符一定是编号值最低的未用文件描述符  
+
+`dup2` 为 `oldfd` 参数所指定的文件描述符创建副本，其编号由 `newfd` 参数指定，如果由 `newfd` 参数所指定编号的文件描述符之前已经打开，那么 `dup2` 会首先将其关闭，不过 `dup2` 会忽略关闭 `newfd` 出现的任何错误  
+
+`dup3` (始于 Linux 2.6.27)系统调用完成的工作与 `dup2` 相同，只是新增了一个附加参数 `flags`，这是一个可以修改系统调用行为的位掩码，目前只支持 `O_CLOEXEC`  
+
+```c
+#include <unistd.h>
+
+int dup(int oldfd);
+int dup2(int oldfd, int newfd);
+
+#define _GNU_SOURCE             /* See feature_test_macros(7) */
+#include <fcntl.h>              /* Obtain O_* constant definitions */
+#include <unistd.h>
+
+int dup3(int oldfd, int newfd, int flags);
+
+// On success, return the new file descriptor
+// On error, -1 is returned, and errno is set appropriately
+```
+
+`dup` 系列调用可以实现 shell 中 I/O 重定向  
+
+如果 `oldfd` 并非有效的文件描述符，那么 `dup2` 调用将失败并返回错误 `EBADF`，且不关闭 `newfd`。如果 `oldfd` 有效，且与 `newfd` 值相等，那么 `dup2` 将什么也不做，不关闭 `newfd`，并将其作为调用结果返回  
+
+
+
+`fcntl` 的 `F_DUPFD` 操作也可以复制文件描述符，且更具有灵活性  
+
+```c
+newfd = fcntl(oldfd, F_DUPFD, startfd);
+```
+
+该调用为 `oldfd` 创建一个副本，且将使用大于等于 `startfd` 的最小未用值作为描述符编号。该调用还能保证新描述符（`newfd`）编号落在特定的区间范围内。总是能将 `dup` 和 `dup2` 调用改写为对 `close` 和 `fcntl` 的调用，虽然前者更为简洁，还有 `dup` 和 `fcntl` 返回值存在差异  
+
+新文件描述符有其自己的一套文件描述符标志，且其 close-on-exec 标志（`FD_CLOEXEC`）总是处于关闭状态  
+
+
+
+## 6. pread/pwrite
+
+`pread` 和 `pwrite` 完成与 `read` 和 `write` 相类似的工作，只是前两者会在 `offset `参数所指定的位置进行文件 I/O 操作，而非始于文件的当前偏移量处，且它们不会改变文件的当前偏移量  
+
+```c
+#include <unistd.h>
+
+ssize_t pread(int fd, void *buf, size_t count, off_t offset);
+ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset);
+
+// On success, pread() returns the number of bytes read 
+// (a return of zero indicates end of file) and 
+// pwrite() returns the number of bytes written
+// On error, -1 is returned and errno is set to indicate 
+// the cause of the error.
+```
+
+对 `pread` 和 `pwrite` 而言，必须允许对 `fd` 指向 `lseek` 调用  
+
+多线程应用为这些系统调用提供了用武之地  
+
+
+
+## 7. readv/writev
+
+`readv` 和 `writev` 系统调用分别实现了分散输入和集中输出的功能  
+
+```c
+#include <sys/uio.h>
+
+ssize_t readv(int fd, const struct iovec *iov, int iovcnt);
+ssize_t preadv(int fd, const struct iovec *iov, int iovcnt,
+               off_t offset);
+ssize_t preadv2(int fd, const struct iovec *iov, int iovcnt,
+                off_t offset, int flags);
+// On success, return the number of bytes read
+// On error, -1 is returned, and errno is set appropriately
+
+ssize_t writev(int fd, const struct iovec *iov, int iovcnt);
+ssize_t pwritev(int fd, const struct iovec *iov, int iovcnt,
+                off_t offset);
+ssize_t pwritev2(int fd, const struct iovec *iov, int iovcnt,
+                 off_t offset, int flags);
+
+// On success, return the number of bytes written
+// On error, -1 is returned, and errno is set appropriately
+```
+
+这些系统调用并非只对单个缓冲区进行读写操作，而是一次即可传输多个缓冲区的数据  
+
+数组 `iov` 定义了一组用来传输数据的缓冲区。整型数 `iovcnt` 则指定了 `iov` 的成员个数。 `iov` 中的每个成员都是如下形式的数据结构  
+
+```c
+struct iovec {
+    void  *iov_base;
+    size_t iov_len;
+};
+```
+
+
+
+SUSv3 标准允许系统实现对 `iov` 中的成员个数加以限制(不少于 16)  
+
+在 `limits.h` 文件中，用 `IOV_MAX` 来确定最大个数  
+
+Linux 把 `IOV_MAX` 设置为 1024  
+
+glibc 对 `readv` 和 `writev` 的封装函数还悄悄做了些额外工作。若系统调用因 `iovcnt` 参数值过大而失败，wrapper 函数将临时分配一块缓冲区，其大小足以容纳 `iov` 参数所有成员所描述的数据缓冲区，随后再执行 `read` 或 `write` 调用  
+
