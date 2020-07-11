@@ -616,3 +616,150 @@ Linux 把 `IOV_MAX` 设置为 1024
 
 glibc 对 `readv` 和 `writev` 的封装函数还悄悄做了些额外工作。若系统调用因 `iovcnt` 参数值过大而失败，wrapper 函数将临时分配一块缓冲区，其大小足以容纳 `iov` 参数所有成员所描述的数据缓冲区，随后再执行 `read` 或 `write` 调用  
 
+原子性是 `readv` 的重要属性  
+
+
+
+## 8. 截断文件
+
+`truncate` 和 `ftruncate` 系统调用将文件大小设置为 `length` 参数指定的值  
+
+```c
+#include <unistd.h>
+#include <sys/types.h>
+
+int truncate(const char *path, off_t length);
+int ftruncate(int fd, off_t length);
+```
+
+若文件当前长度大于参数 length，调用将丢弃超出部分，若小于参数 length，调用将在文
+件尾部添加一系列空字节或是一个文件空洞  
+
+两个系统调用之间的差别在于如何指定操作文件。`truncate` 以路径名字符串来指定文件，并要求可访问该文件，且对文件拥有写权限。若文件名为符号链接，那么调用将对其进行解引用。而调用`ftruncate` 之前，需以可写方式打开操作文件，获取其文件描述符以指代该文件，该系统调用不会修改文件偏移量  
+
+若 `ftruncate` 的 `length` 参数值超出文件的当前大小， SUSv3 允许两种行为：要么扩展该文件（如 Linux），要么返回错误。而符合 XSI 标准的系统则必须采取前一种行为。相同的情况，对于 `truncate` 系统调用， SUSv3 则要求总是能扩展文件  
+
+
+
+## 9. 非阻塞 I/O
+
+非阻塞 I/O 在打开文件时指定 O_NONBLOCK 标志  
+
+- 若 `open` 调用未能立即打开文件，则返回错误，而非陷入阻塞。有一种情况属于例外，调用 `open`操作 FIFO 可能会陷入阻塞  
+- 调用 `open` 成功后，后续的 I/O 操作也是非阻塞的。若 I/O 系统调用未能立即完成，则可能会只传输部分数据，或者系统调用失败，并返回 EAGAIN 或 EWOULDBLOCK 错误。具体返回何种错误将依赖于系统调用  
+
+pipe、FIFO、 套接字、 设备（比如终端、 伪终端） 都支持非阻塞模式  
+
+由于内核缓冲区保证了普通文件 I/O 不会陷入阻塞，故而打开普通文件时一般会忽略 `O_NONBLOCK` 标志。 然而， 当使用强制文件锁时， `O_NONBLOCK` 标志对普通文件也是起作用的  
+
+
+
+
+
+## 10. 大文件 I/O
+
+通常将存放文件偏移量的数据类型 off_t 实现为一个有符号的长整型(`long`)  
+
+在 32 位体系架构中（比如 x86-32），这将文件大小置于 $2^{31}-1$ 个字节（即 2GB）的限制之下  
+
+32 位 UNIX 实现有处理超过 2GB 大小文件的需求  
+
+始于内核版本 2.4， 32 位 Linux 系统开始提供对 LFS 的支持（glibc 版本必须为 2.2 或更高），相应的文件系统也必须支持大文件操作    
+
+应用程序可使用如下两种方式之一以获得 LFS 功能：  
+
+- 使用支持大文件操作的备选 API  
+- 在编译应用程序时，将宏 `_FILE_OFFSET_BITS` 的值定义为 64  
+
+不过在 64 位架构，LFS 增强特性所要突破的限制对其而言并不是问题  
+
+
+
+LFS API：
+
+```c
+fd = open64(name, O_CREAT | O_RDWR, mode);
+off64_t;
+struct stat64;
+```
+
+
+
+## 11. /dev/fd
+
+对每个进程，内核都提供了一个特殊的虚拟目录 `/dev/fd`  
+
+该目录中包含 `/dev/fd/n` 形式的文件名，其中 `n` 是与进程中的打开文件描述符相对应的编号  
+
+SUSv3 对 `/dev/fd` 特性未做规定，但有些其他的 UNIX 实现也提供了这一特性  
+
+打开 `/dev/fd` 目录中文件等同于复制相应的文件描述符，下列两行代码是等价的：  
+
+```c
+fd = open("/dev/fd/1", O_WRONLY);
+fd = dup(1);
+```
+
+在为 `open` 调用设置 `flags` 参数时，需要注意将其设置为与原描述符相同的访问模式  
+
+程序中很少会使用/dev/fd 目录中的文件。其主要用途在 shell 中  
+
+
+
+## 12. 临时文件
+
+有些程序需要创建一些临时文件， 仅供其在运行期间使用， 程序终止后即行删除  
+
+GNU C 语言函数库为此而提供了一系列库函数  
+
+介绍其中的两个函数： `mkstemp` 和 `tmpfile`  
+
+
+
+基于调用者提供的模板， `mkstemp` 函数生成一个唯一文件名并打开该文件，返回一个可用于 I/O 调用的文件描述符  
+
+```c
+#include <stdlib.h>
+
+int mkstemp(char *template);
+
+// On success, return the file descriptor of the temporary file
+// On error, -1 is returned, and errno is set appropriately
+```
+
+模板参数采用路径名形式，其中最后 6 个字符必须为 `XXXXXX`。这 6 个字符将被替换，以保证文件名的唯一性， 且修改后的字符串将通过 `template` 参数传回。 因为会对传入的 `template` 参数进行修改，所以必须将其指定为字符数组，而非字符串常量  
+
+文件拥有者对 `mkstemp` 函数建立的文件拥有读写权限（其他用户则没有任何操作权限），且打开文件时使用了 `O_EXCL` 标志，以保证调用者以独占方式访问文件  
+
+通常，打开临时文件不久，程序就会使用 unlink 系统调用将其删除，示例程序  
+
+```c
+char template[] = "/tmp/someStringXXXXXX";
+int fd = mkstemp(template);
+if (fd == -1) {
+    errExit("mkstemp");
+}
+
+printf("tmp file: %s\n", template);
+unlink(template);
+if (close(fd) == -1) {
+    errExit("close");
+}
+```
+
+`tmpnam`、 `tempnam` 和 `mktemp` 函数也能生成唯一的文件名。然而，由于这会导致应用程序出现安全漏洞，应当避免使用这些函数  
+
+
+
+```c
+#include <stdio.h>
+
+FILE *tmpfile(void);
+
+// returns a stream descriptor, or NULL if a unique filename 
+// cannot be generated or the unique file cannot be opened
+// In the latter case, errno is set to indicate the error
+```
+
+
+
