@@ -919,3 +919,181 @@ Linux 系统上，交换分区的使用和内核参数 `swappiness` 的值有关
 新进程在创建之时，会继承其父进程的环境副本  
 
 可以通过设置环境变量来改变一些库函数的行为。正因如此，用户无需修改程序代码或者重新链接相关库，就能控制调用该函数的应用程序行为  
+
+
+
+**在程序中访问环境变量**  
+
+在 C/C++ 程序中，可以使用 `char **environ` 访问环境变量，`environ` 和 `argv` 类似，具体见 `man environ`  
+
+```c
+#include <stdio.h>
+
+int main() {
+    extern char **environ;
+    for (int i = 0; environ[i] != NULL; ++i) {
+        printf("#%d %s\n", i, environ[i]);
+    }
+    
+    return 0;
+}
+```
+
+也可以使用 `main` 函数的第三个参数来访问环境变量列表  
+
+```c
+int main(int argc, char *argv[], char *envp[]);
+```
+
+还可以通过 API 来从环境变量中检索单个值  
+
+```c
+#include <stdlib.h>
+
+char *getenv(const char *name);
+
+// returns a pointer to the value in the environment
+// or NULL if there is no match
+```
+
+应用程序不应修改 `getenv` 函数返回的字符串， 这是由于(在大多数 UNIX实现中)该字符串实际上属于境的一部分。若需要改变一个环境变量的值，可以使用 `setenv` 函数或 `putenv` 函数  
+
+允许 `getenv`函数的实现使用静态分配的缓冲区返回执行结果，后续对 `getenv`、`setenv`、 `putenv` 或者 unsetenv()的函数调用可以重写该缓冲区。虽然 glibc 库的 `getenv`函数实现并未这样使用静态缓冲区，但具备可移植性的程序如需保留 `getenv`调用返回的字符串，就应先将返回字符串复制到其他位置，之后方可对上述函数发起调用  
+
+
+
+**修改环境变量**  
+
+对进程来说，修改其环境很有用处。原因之一是这一修改对该进程后续创建的所有子进程均可见。 另一个可能的原因在于设定某一变量， 以求对于将要载入进程内存的新程序(execed)  
+
+```c
+#include <stdlib.h>
+
+int putenv(char *string);
+
+// returns zero on success, or nonzero if an error occurs
+// In the event of an error, errno is set to indicate the cause
+```
+
+参数 `string` 是一指针，指向 `name=value` 形式的字符串，`putenv` 函数将设定 `environ` 变量中某一元素的指向与 `string` 参数的指向位置相同，而非 `string` 参数所指向字符串的复制副本    
+
+如果随后修改 `string` 参数所指的内容，这将影响该进程的环境。出于这一原因， `string` 参数不应为自动变量  
+
+glibc 库实现还提供了一个非标准扩展。 如果 string 参数内容不包含一个等号（ =），那么将从环境列表中移除以 string 参数命名的环境变量  
+
+```c
+#include <stdlib.h>
+
+int setenv(const char *name, const char *value, int overwrite);
+
+// return zero on success
+// or -1 on error, with errno set to indicate the cause of the error
+```
+
+和 `putenv` 不同，`setenv` 会复制字符串到缓冲区  
+
+
+
+```c
+#include <stdlib.h>
+
+int unsetenv(const char *name);
+// On success, return 0 
+// On error, return -1
+```
+
+`unsetenv` 函数从环境中移除由 `name` 参数标识的变量  
+
+```c
+#define _BSD_SOURCE
+#include <stdlib.h>
+
+int clearenv(void);
+// environ = NULL;
+// On success return 0
+// On error return a nonzero
+```
+
+`clearenv` 清除整个环境变量  
+
+使用 `setenv` 函数和 `clearenv` 函数可能会导致程序内存泄露。前面已然提及： `setenv` 函数所分配的一块内存缓冲区，随之会成为进程环境变量的一部分。而调用 `clearenv` 时则没有释放该缓冲区  
+
+
+
+## 6. setjmp/longjmp
+
+使用库函数 `setjmp` 和 `longjmp` 可执行非局部跳转（nonlocal goto）  
+
+C 语言的 `goto` 语句存在一个限制，即不能从当前函数跳转到另一函数  
+
+考虑错误处理中经常出现的如下场景：在一个深度嵌套的函数调用中发生了错误，需要放弃当前任务，从多层函数调用中返回，并在较高层级的函数中继续执行  
+
+```c
+#include <setjmp.h>
+
+int setjmp(jmp_buf env);
+// return 0 when called directly
+// return nonzero value specified in val is returned when after longjmp
+
+void longjmp(jmp_buf env, int val);
+```
+
+如果 `longjmp` 指定 `val` 参数值为 0，则 `longjmp` 调用实际会将其替换为 1  
+
+这两个函数的入参 `env` 为成功实现跳转提供了黏合剂。 `setjmp` 函数把当前进程环境的各种信息保存到 `env` 参数中。调用 `longjmp` 时必须指定相同的 `env` 变量，以此来执行“伪”返回  
+
+应该将 env 参数定义为全局变量，或者将 env 作为函数入参来传递  
+
+调用 `setjmp` 时，`env` 除了存储当前进程的其他信息外，还保存了程序计数寄存器和栈指针寄存器的副本。这些信息能够使后续的 `longjmp` 调用完成两个关键步骤的操作  
+
+- 将发起 `longjmp` 调用的函数与之前调用 `setjmp` 的函数之间的函数栈帧从栈上剥离。有时又将此过程称为 unwinding stack  
+- 重置程序计数寄存器，使程序得以从初始的 setjmp()调用位置继续执行  
+
+
+
+SUSv3 和 C99 规定，对 `setjmp` 的调用只能在如下语境中使用：  
+
+- `if/while/for/switch` 的条件表达式中  
+- 作为一元操作符 `!` 的操作对象  
+- 作为比较操作 `==/!=/</>/<=/>=` 的一部分  
+- 作为独立的函数调用，且没有嵌入到更大的表达式之中  
+
+
+
+`longjmp` 调用不能跳转到一个已经返回的函数中  
+
+
+
+示例代码：  
+
+```c
+#include <stdio.h>
+#include <setjmp.h>
+#include <stdnoreturn.h>
+ 
+jmp_buf env;
+ 
+noreturn void foo(int count) {
+    printf("a(%d) called\n", count);
+    longjmp(env, count+1);
+}
+ 
+int main(void) {
+    volatile int count = 0; // setjmp 作用域内要修改的局部变量必须为 volatile
+    if (setjmp(env) != 4) {
+        foo(count++);
+    }
+
+    return 0;
+}
+```
+
+
+
+**编译器优化问题**：  
+
+如果启用编译器优化，局部变量可能会使用寄存器来而非内存来存储变量的值，其值在调用 `longjmp` 之后会丢失  
+
+
+
+尽可能避免使用 `setjmp` 函数和 `longjmp` 函数  
