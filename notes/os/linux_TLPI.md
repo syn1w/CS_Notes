@@ -1097,3 +1097,194 @@ int main(void) {
 
 
 尽可能避免使用 `setjmp` 函数和 `longjmp` 函数  
+
+
+
+# 七、内存分配
+
+进程可以通过增加堆的大小来分配内存，所谓堆是一段长度可变的连续虚拟内存，始于进程的未初始化数据段末尾，随着内存的分配和释放而增减  
+通常将堆的当前内存边界称为 program break  
+
+## 1. brk 和 sbrk
+
+改变堆的大小（分配和释放内存），其实就像命令内核改变 program break 位置一样简单  
+最初，program break 正好位于未初始化数据段末尾之后，和 `&end`  位置相同  
+在 program break 的位置抬升后，程序可以访问新分配区域内的任何内存地址，而此时物理内存页尚未分配。内核会在进程首次试图访问这些虚拟内存地址时自动分配新的物理内存页  
+
+不会直接使用 `brk` 和 `sbrk`，只是有利于弄清内存分配的工作过程  
+
+```c
+#include <unistd.h>
+
+int brk(void *addr); 
+// On success, return 0
+// On error, -1 is returned, and errno is set to ENOMEM
+
+void *sbrk(intptr_t increment);
+// On success, returns the previous program break
+// On error, (void *) -1 is returned, and errno is set to ENOMEM.
+```
+
+`brk` 或 `sbrk` 会根据 `addr` 或 `increment` 改变 program break 的位置当参数有效、系统有足够的内存并且没有超过进程的最大内存限制  
+
+当试图将 program break 设置为一个低于其初始值的位置时（低于 `&end`），有可能导致无法预知的行为  
+program break 可以设定的精确上限取决于一系列因素，这包括进程中对数据段大小的资源限制(RLIMIT_DATA)，以及内存映射、共享内存段、共享库的位置  
+
+调用 `sbrk(0)` 将返回 program break 的当前位置  
+
+
+
+## 2. malloc/free
+
+```c
+#include <stdlib.h>
+
+void *malloc(size_t size);
+
+// If successful, return a pointer to allocated memory
+// If there is an error, they return a NULL pointer and set errno to ENOMEM
+```
+
+`malloc` 返回内存块所采用的字节对齐方式，总是适宜于高效访问任何类型的 C 语言数据结构  
+在大多数硬件架构上，这实际意味着 `malloc` 是基于 8 字节或 16 字节边界来分配内存  
+
+```c
+#include <stdlib.h>
+
+void free(void *ptr);
+```
+
+`free` 函数释放 `ptr` 参数所指向的内存块，该参数应该是之前由 `malloc` 或其他内存分配函数返回的地址  
+一般情况下，`free` 并不降低 program break 的位置，而是将这块内存填加到空闲内存列表中，供后续的 `malloc` 函数循环使用，因为：  
+
+- 被释放的内存块通常会位于堆的中间，而非堆的顶部，因而降低 porgram break 是不可能的 
+- 它最大限度地减少了程序必须执行的 `sbrk` 调用次数 
+- 在大多数情况下，降低 program break 的位置不会对那些分配大量内存的程序有多少帮助，因为它们通常倾向于持有已分配内存或是反复释放和重新分配内存，而非释放所有内存后再持续运行一段时间  
+
+如果传给 `free` 的是一个空指针，那么函数将什么都不做  
+
+当进程终止时，其占用的所有内存都会返还给操作系统，对大多数程序来说，不调用 `free` 让操作系统自己回收内存也是可以接受的，但是最好在程序中显式释放已分配的内存  
+
+
+
+## 3. malloc/free 实现
+
+`malloc` 的实现很简单。它首先会扫描之前由 `free` 所释放的空闲内存块列表，以求找到尺寸大于或等于要求的一块空闲内存。(取决于具体实现，采用的扫描策略会有所不同。例如， first-fit 或 best-fito）。如果这一内存块的尺寸正好与要求相当，就把它直接返回给调用者。如 果是一块较大的内存，那么将对其进行分割，在将一块大小相当的内存返回给调用者的同时， 把较小的那块空闲内存块保留在空闲列表中  
+如果在空闲内存列表中根本找不到足够大的空闲内存块，那么 `malloc` 会调用 `sbrk` 以分配更多的内存。为减少对 `sbrk` 的调用次数，`malloc` 并未只是严格按所需字节数来分配内存，而是以更大幅度(以虚拟内存页大小的数倍)来增加 program break，并将超出部分置于空闲内存列表  
+
+需要注意的是：以下很多都是实现定义的，而非所有的 malloc/free 都是这样的实现细节  
+当 `free` 将内存块置于空闲列表之上时，是如何知晓内存块大小的?当 `malloc` 分配内存块时，会额外分配几个字节来存放记录这块内存大小的整数值。该整数位于内存块的起始处，而实际返回给调用者的内存地址恰好位于这一长度记录字节之后  
+
+```txt
+ +---------+----------------------+
+ |  Length | memory by allocated  |
+ +---------+----------------------+
+            |
+   address returned by malloc
+```
+
+当将内存块置于空闲内存列表（双向链表，free block list）时，`free()` 会使用内存块本身的空间来存放链表指针，将自身添加到列表中  
+
+pic!!!
+
+应该遵守以下规则来避免一部分的内存错误：
+
+- 分配一块内存后，应当小心谨慎，不要改变这块内存范围外的任何内容 
+- 释放同一块已分配内存超过一次是错误的。当两次释放同一块内存时，更常见的后果是导致不可预知的行为 
+- 若非经由 `malloc` 函数包中函数所返回的指针，绝不能在调用 `free()` 函数时使用
+- 在编写需要长时间运行的程序，如果需要反复分配内存，那么应当确保释放所有已使用完毕的内存，如若不然，堆将稳步增长，直至抵达可用虚拟内存的上限，这种情况被称之为“内存泄漏” 
+
+
+
+## 4. malloc 调试工具和库
+
+glibc 提供的 malloc 调试工具：
+
+- `mtrace()` 和 `muntrace()` 函数分别在程序中打开和关闭对内存分配调用进行跟踪的功能。这些函数要与环境变量 `MALLOC_TRACE` 搭配使用，该变量定义了写入跟踪信息的文件名。在被调用时，`mtrace()` 会检查是否定义了该文件，又是否可以打开文件并写入。如果一切正常，那么会在文件里跟踪和记录所有对 `malloc` 函数包中函数的调用。由于生成文件不易于理解，还提供有一个脚本(`mtrace`)用于分析文件，并生成易于理解的汇总报告。出于安全原因，设置了 SUID 和 SGID 的程序会忽略对 `mtrace()` 的调用
+- `mcheck()` 和 `mprobe()` 函数允许程序对已分配内存块进行一致性检查。例如，当程序试图在已分配内存之外进行写操作时，它们将捕获这个错误。必须使用 `-lmcheck` 选项与 mcheck 库链接 
+- `MALLOC_CHECK_` 环境变量提供了类似于 `mcheck()` 和 `mprobe()` 函数的功能。(两者之间的一个显著区别在于使用 `MALLOC_CHECK_` 无需对程序进行修改和重新编译)。出于安全原因，设置了 SUID 和 SGID 的程序将忽略 `MALLOC_CHECK_` 设置。可能设置的值有：
+  - 0，忽略错误;
+  - 1，在标准错误输出(stderr)中打印诊断错误;
+  - 2，调用 abort()来终止程序。
+- Valgrind
+- Electric Fence
+- dmalloc
+- Insure++
+
+glibc 手册介绍了一系列非标准函数，可用于监测和控制 malloc 包中函数的内存分配：
+
+- `mallopt()` 能修改各项参数，以控制 `malloc()` 所采用的算法。指定了在调用 `sbrk()` 函数进行堆收缩之前，在空闲列表尾部必须保有的可释放内存空间的最小值。另一参数则规定了从堆中分配的内存块大小的上限，超出上限的内存块则使用 `mmap()` 系统调用来分配
+- `mallinfo()` 函数返回一个结构，其中包含由 `malloc()` 分配内存的各种统计数据
+
+
+## 5. calloc/realloc
+
+除了 malloc()，C 函数库还提供了一系列在堆上分配内存的其他函数  
+
+```c
+#include <stdlib.h>
+
+void *calloc(size_t numitems, size_t size);
+void *realloc(void *ptr, size_t size);
+```
+
+函数 `calloc()` 用于给一组相同对象分配内存，参数 `mumitems` 指定分配对象的数量，`size` 指定每个对象的大小。在分配了适当大小的内存块后，`calloc()` 返回指向这块内存起始处的指针(如果无法分配内存，则返回 `NULL`)。与 `malloc()` 不同，`calloc()` 会将已分配的内存初始化为 0  
+
+
+`realloc()` 函数用来调整(通常是增加)一块内存的大小，而此块内存应是之前由 `malloc` 包中函数所分配的  
+如果成功，`realloc()` 返回指向大小调整后内存块的指针。与调用前的指针相比，二者指向的位置可能不同  
+如果发生错误，`realloc()` 返回 `NULL`，对 `ptr` 指针指向的内存块则原封不动  
+若 `realloc()` 增加了已分配内存块的大小，不会对额外分配的字节进行初始化  
+
+使用 `calloc()` 或 `realloc()` 分配的内存应使用 `free()` 来释放  
+
+通常情况下，当增大已分配内存时，`realloc()` 会试图去合并在空闲列表中紧随其后且大小满足要求的内存块。若原内存块位于堆的顶部，那么 `realloc()` 将对堆空间进行扩展。 如果这块内存位于堆的中部，且紧邻其后的空闲内存空间大小不足，`realloc()` 会分配一块 新内存，并将原有数据复制到新内存块中。最后这种情况最为常见，还会占用大量 CPU 资源。一般情况下，应尽量避免调用 `realloc()`  
+
+
+**分配内存对其的内存**：
+
+```c
+#include <malloc.h>
+void *memalign(size_t boundary, size_t size);
+// reutrn pointer to allocated memory on success or
+// NULL on error
+
+int 
+```
+
+起始地址要与 2 的整数次幂边界对齐，该特征对于某些应用非常有用  
+`memalign()` 分配 `size` 字节的内存，起始地址是参数 `boundary` 的整数倍，而 `boundary` 必须是 2 的整数次幂。函数返回已分配内存的地址  
+函数 `memalign()` 并非在所有 UNIX 实现上都存在  
+
+SUSv3 并未纳入 `memalign()`，而是规范了一个类似函数，名为 `posix_memalign()`。只出现在了少数 UNIX 实现上  
+
+```c
+#include <stdlib.h>
+
+int posix_memalign(void **memptr, size_t aligment, size_t size);
+// return 0 on success or
+// return a positive error number on error
+```
+
+`alignment` 必须是 `sizeof(void*)` 与 2 的整数次幂两者间的乘积  
+
+
+
+## 6. alloca
+
+`alloca` 和 `malloc` 类似，不过不是从堆上分配内存，而是通过增加栈帧来在栈上分配内存  
+
+```c
+#include <alloca.h>
+
+void *alloca(size_t size);
+// return pointer to allocated block of memory
+```
+
+不需要(实际上也绝不能)调用 `free()` 来释放由 `alloca()` 分配的内存。同样，也不可能调用 `realloc()` 来调整由 `alloca()` 分配的内存大小  
+
+虽然 `alloca()` 不是 SUSv3 的一部分，但大多数 UNIX 实现都提供了此函数  
+若调用 `alloca()` 造成栈溢出，则程序的行为无法预知，特别是在没有收到一个 `NULL` 返回值通知错误的情况下。(在此情况下，可能会收到一个 SIGSEGV 信号。）  
+
+不能在一个函数的参数列表中调用 `alloca()`，比如 `foo(alloca(size), x)`  
+这会使 `alloca()` 分配的堆栈空间出现在当前函数参数的空间内(函数参数都位于栈帧内 的固定位置)  
