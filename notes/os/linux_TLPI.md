@@ -1288,3 +1288,158 @@ void *alloca(size_t size);
 
 不能在一个函数的参数列表中调用 `alloca()`，比如 `foo(alloca(size), x)`  
 这会使 `alloca()` 分配的堆栈空间出现在当前函数参数的空间内(函数参数都位于栈帧内 的固定位置)  
+
+
+
+
+
+# 八、用户和组
+
+## 1. /etc/passwd
+
+针对系统的每个用户账号，系统密码文件/etc/passwd 会专列一行进行描述  
+
+每行都包含 7个字段，之间用冒号分隔，比如  
+
+```
+username:x:1000:1000:,,,:/home/username:/usr/bin/zsh
+```
+
+上面的七个字段依次是：
+
+- 登录名，也将其称为用户名  
+- 经过加密的密码：要是启用了 shadow 密码（这是常规做法），系统将会不解析该字段。这时， `/etc/passwd` 中的密码字段通常会包含字母 `x`，而经过加密处理的密码实际上却存储到 shadow 密码文件中  
+- UID：如果该字段的值为 0，那么相应账户即具有特权级权限。这种账号一般只有一个，其登录名为 root  
+- GID：用户属组中首选属组的数值型 ID  
+- 注释：该字段存放关于用户的描述性文字  
+- 主目录：用户登录后所处的初始路径，该字段内容来设置 HOME 环境变量  
+- 登录 shell：一旦用户登录，便交由该程序控制  
+
+
+
+## 2. /etc/shadow
+
+shadow 密码文件 `/etc/shadow` 应运而生。其理念是用户的所有非敏感信息存放于“人人可读”的密码
+文件中，而经过加密处理的密码则由 shadow 密码文件单独维护，仅供具有特权的程序读取  
+
+
+
+## 3. /etc/group
+
+系统中的每个组在组文件/etc/group 中都对应着一条记录。每条记录包含 4 个字段，之间
+以冒号分隔，比如：  
+
+```
+groupname:x:1000:
+```
+
+四个字段依次是：  
+
+- 组名  
+- 经过加密处理的密码：组密码属于非强制特性，对应于该字段  
+- GID  
+- 用户列表：属于该组的用户名列表，之间以逗号分隔  
+
+
+
+## 4. 获取用户和组信息
+
+**获取用户信息**   
+
+```c
+#include <pwd.h>
+
+struct passwd {
+  	char *pw_name;
+    char *pw_passwd;
+    uid_t pw_uid;
+    gid_t pw_gid;
+    char *pw_gecos;  // 用户注释信息
+    char *pw_dir;
+    char *pw_shell;
+};
+
+struct passwd *getpwnam(const char *name);
+struct passwd *getpwuid(uid_t uid);
+
+// return NULL on error
+```
+
+passwd 结构的 `pw_gecos` 和 `pw_passwd` 字段虽未在 SUSv3 中定义，但获得了所有 UNIX 实现的支持  
+
+由于 `getpwnam()` 和 `getpwuid()` 返回的指针指向由静态分配而成的内存， 故而二者都是不可重入的（not reentrant）。实际上，情况甚至要更加复杂，因为返回的 `passwd` 结构还包含了指向其他信息（比如， `pw_name`）的指针，而这些信息同样也是由静态分配而成的  
+
+SUSv3 为该组函数定义了与之等价的一组可重入函数：`getpwnam_r()`、 `getpwuid_r()`、
+`getgrnam_r()` 以及 `getgrgid_r()`。其参数包括 `passwd`（或 `group`）结构，以及一个缓冲区。这
+一缓冲区专门用来保存 `passwd`(`group`) 结构中各字段所指向的其他结构  
+
+SUSv3 规定，如果在 `passwd` 文件中未发现匹配记录，那么 `getpwnam()` 和 `getpwuid()` 将返
+回 `NULL`，且不会改变 `errno`  
+
+然而，不少 UNIX 实现在这一点上并未遵守 SUSv3 规范。如果未能在 passwd 文件中发现一条匹配记录，那么两个函数均会返回 `NULL`，并将 `errno` 设置为非零值，比如， `ENOENT` 或 `ESRCH`  
+
+2.7 版本之前的 glibc 会产生 `ENOENT` 错误， 而从 2.7 版本开始， glibc 开始遵守 SUSv3 规范  
+
+
+
+**获取组信息**  
+
+```c
+#include <grp.h>
+
+struct group {
+  	char  *gr_name;
+    char  *gr_passwd;
+    gid_t  gr_gid;
+    char **gr_mem;
+};
+
+struct group *getgrnam(const char *name);
+struct group *getgrgid(gid_t gid);
+
+// return NULL on error
+```
+
+上述 group 和 user 类似，不再赘述  
+
+
+
+**扫描 /etc/passwd 中的所有记录**  
+
+```c
+#include <pwd.h>
+
+struct passwd *getpwent(void);
+// return pointer on success, or NULL on end of stream or error
+
+void setpwent(void);
+void endpwent(void);
+```
+
+函数 `getpwent()` 能够从密码文件中逐条返回记录，当不再有记录（或出错）时，该函数返回 NULL。`getpwent()` 一经调用，会自动打开密码文件。当密码文件处理完毕后，可调用 `endpwent()` 将其关闭 ，还可以调用 `setpwent()` 函数重返文件起始处  
+
+
+
+**扫描 /etc/shadow中的所有记录**  
+
+```c
+#include <shadow.h>
+
+struct spwd {
+  	char *sp_name;
+    char *sp_pwdp;   // Encrypted password
+    long  sp_lstchg; // Time of last password change
+                     // (days since 1 Jan 1970)
+    long  sp_min;    // Min # of days between changes
+    long  sp_max;    // Max # of days between changes
+    long  sp_warn;   // # of days before password expires
+                     // to warn user to change it
+    long  sp_inact;  // # of days after password expires
+                     // until account is disabled
+    long  sp_expire; // Date when account expires
+                     // (measured in days since
+                     //  1970-01-01 00:00:00 +0000 (UTC))
+	unsigned long sp_flag;  // Reserved
+};
+```
+
