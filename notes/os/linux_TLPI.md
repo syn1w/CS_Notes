@@ -1443,3 +1443,34 @@ struct spwd {
 };
 ```
 
+
+
+## 5. 密码加密和用户认证
+
+由于安全方面的原因， UNIX 系统采用单向加密算法对密码进行加密，这意味着由密码的加密形式将无法还原出原始密码  
+
+验证候选密码的唯一方法是使用同一算法对其进行加密，并将加密结果与存储于 `/etc/shadow` 中的密码进行匹配。加密算法封装于 `crypt()` 函数之中  
+
+```c
+#define _XOPEN_SOURCE
+#include <unistd.h>
+
+char* crypt(const char *key, const char *salt);
+// On success, a pointer to the encrypted password is returned
+// On error, NULL is returned.
+// -lcrypt
+```
+
+`crypt()` 算法会接受一个最长可达 8 字符的密钥（即密码），并施之以数据加密算法（DES）的一种变体。 salt 参数指向一个两字符的字符串，用来扰动（改变） DES 算法，设计该技术，意在使得经过加密的密码更加难以破解。该函数会返回一个指针，指向长度为 13 个字符的字符串，该字符串为静态分配而成，内容即为经过加密处理的密码  
+
+从标准输入读取用户密码：
+
+```c
+#include <unistd.h>
+
+char *getpass( const char *prompt);
+// returns a pointer to a static buffer containing the password without the trailing newline, terminated by a null byte ('\0')
+// On error, the terminal state is restored, errno is set appropriately, and NULL is returned
+```
+
+读取密码的程序应立即加密密码，并尽快将密码的明文从内存中抹去。只有这样，才能基本杜绝如下事件的发生：恶意之徒借程序崩溃之机，读取内核转储文件以获取密码  
