@@ -1474,3 +1474,39 @@ char *getpass( const char *prompt);
 ```
 
 读取密码的程序应立即加密密码，并尽快将密码的明文从内存中抹去。只有这样，才能基本杜绝如下事件的发生：恶意之徒借程序崩溃之机，读取内核转储文件以获取密码  
+
+
+
+# 九、进程凭证
+
+每个进程都有一套用数字表示的 UID 和 GID，这些 ID 称之为进程凭证  
+
+- 实际用户 ID 和实际组ID
+- 有效(effective)用户 ID(EUID) 和有效组 ID(EGID)
+- 设置(set)用户 ID(SUID) 和设置组 ID(SGID)
+- 文件系统用户 ID 和文件系统组 ID
+- 辅助组 ID
+
+## 1. 实际 UID/GID
+
+实际用户 ID 和实际组 ID 确定了进程所属的用户和组  
+当创建新进程时，将从其父进程中继承这些 ID  
+
+## 2. EUID/EGID
+
+大多数 UNIX 实现（Linux 实现略有差异）中，当进程尝试各种操作时，将结合 EUID、EGID、辅助组 ID 一起确定授予进程的权限  
+有效用户 ID 为 0的进程拥有超级用户的所有权限。这样的进程又称为特权级进程(privileged process)。而某些系统调用只能由特权级进程执行  
+
+## 3. SUID/SGID
+
+SUID 将程序的 EUID 置为可执行文件的所有者 UID，从而在非特权用户模式下拥有文件所有者的权限，一个例子就是 `passwd` 程序  
+
+```sh
+ls -lh `which passwd`
+# -rwsr-xr-x 1 root root 28K ... .. .... /usr/bin/passwd
+```
+
+关于 SUID 和 SGID 更详细的内容可以见[这里](https://github.com/syn1w/CS_Notes/blob/master/notes/os/linux_begin.md#8-文件权限)
+
+
+
