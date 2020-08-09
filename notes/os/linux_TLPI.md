@@ -1483,13 +1483,13 @@ char *getpass( const char *prompt);
 
 - 实际用户 ID 和实际组ID
 - 有效(effective)用户 ID(EUID) 和有效组 ID(EGID)
-- 设置(set)用户 ID(SUID) 和设置组 ID(SGID)
+- 设置(set)用户 ID(Set UID) 和设置组 ID(Set GID)
 - 文件系统用户 ID 和文件系统组 ID
 - 辅助组 ID
 
-## 1. 实际 UID/GID
+## 1. RUID/RGID
 
-实际用户 ID 和实际组 ID 确定了进程所属的用户和组  
+实际(Real)用户 ID 和实际组 ID 确定了进程所属的用户和组  
 当创建新进程时，将从其父进程中继承这些 ID  
 
 ## 2. EUID/EGID
@@ -1497,16 +1497,204 @@ char *getpass( const char *prompt);
 大多数 UNIX 实现（Linux 实现略有差异）中，当进程尝试各种操作时，将结合 EUID、EGID、辅助组 ID 一起确定授予进程的权限  
 有效用户 ID 为 0的进程拥有超级用户的所有权限。这样的进程又称为特权级进程(privileged process)。而某些系统调用只能由特权级进程执行  
 
-## 3. SUID/SGID
+## 3. Set UID/GID
 
-SUID 将程序的 EUID 置为可执行文件的所有者 UID，从而在非特权用户模式下拥有文件所有者的权限，一个例子就是 `passwd` 程序  
+Set UID 和 Set GID 是文件的标志位  
+
+Set UID 将程序的 EUID 置为可执行文件的所有者 UID，从而在非特权用户模式下拥有文件所有者的权限，一个例子就是 `passwd` 程序  
 
 ```sh
 ls -lh `which passwd`
 # -rwsr-xr-x 1 root root 28K ... .. .... /usr/bin/passwd
 ```
 
-关于 SUID 和 SGID 更详细的内容可以见[这里](https://github.com/syn1w/CS_Notes/blob/master/notes/os/linux_begin.md#8-文件权限)
+关于 Set UID 和 Set GID 更详细的内容可以见[这里](https://github.com/syn1w/CS_Notes/blob/master/notes/os/linux_begin.md#8-文件权限)
+
+
+
+## 4. Saved Set UID/GID
+
+设计 Saved Set UID 和 Saved Set GID，主要是与 Set UID 和 Set GID 结合使用  
+
+当执行程序时，依次会发生如下事件：
+
+- 若可执行程序的 Set UID 或 Set GID 权限已开启，则将进程的 EUID 或 EGID 设置为可执行程序的属主，若未设置 Set UID 或 Set GID，进程的 EUID 将保持不变  
+- Saved Set UID/GID 由对应的 EUID 复制而来
+
+比如某进程的 RUID、EUID、Saved Set UID 都为 1000，当其执行属主是 root 拥有 Set UID 的程序后，进程的用户 ID 将变为：  
+
+RUID = 1000, EUID = 0, Saved Set UID = 0  
+
+关于 Saved Set UID/GID 为什么被需要见 [Stack Overflow Why-Saved-Set-UID-is-needed](https://stackoverflow.com/questions/5665495/why-saved-set-userid-is-needed)  
+
+
+
+## 5. 文件系统 UID/GID
+
+在 Linux 系统中，要进行诸如打开文件、改变文件属主、修改文件权限之类的文件系统操作时，决定其操作权限的是文件系统 UID 和 GID（结合辅助 GID），而非 EUID 和 EGID  
+
+通常，FSUID 和 FSGID 的值等同于相应的 EUID 和 EGID，此外，大多数情况下 EUID/EGID 改变，文件系统 UID/GID 也会发生相应的改变  
+
+只有当使用 Linux 特有的两个系统调用（ `setfsuid()` 和 `setfsgid()`）时，才可以刻意制造出文件系统 ID 与相应有效 ID 的不同，因而 Linux 也不同于其他的 UNIX 实现  
+
+主要是历史原因，自内核 2.0 起， Linux 开始在信号发送权限方面遵循 SUSv3 所强制规定的规则，且这些规则不再涉及目标进程的 EUID  
+
+从严格意义上来讲，保留文件系统 ID 特性已无必要，但为了与现有软件保持兼容，这一功能得以保留了下来  
+
+
+
+## 6. 辅助 GID
+
+辅助组 ID 用于标识进程所属的若干附加的组。新进程从其父进程处继承这些 ID，登录 shell 从系统组文件中获取其辅助的组 ID  
+
+
+
+## 7. 获取和修改进程凭证
+
+可以通过 Linux 系统特有的 `/proc/PID/status` 文件来查看进程凭证信息  
+
+
+
+**获取 Real/Effective ID**  
+
+```c
+#include <unistd.h>
+
+uid_t getuid(void);  // return real user id of calling process
+uid_t geteuid(void); // return effective user id of calling process
+gid_t getgid(void);  // return real group id of calling process
+gid_t getegid(void); // return effective group id of calling process
+```
+
+
+
+**修改 Effective ID**  
+
+```c
+#include <unistd.h>
+
+int setuid(uid_t uid);
+int setgid(gid_t gid);
+
+// return 0 on success or -1 on error
+```
+
+- 当非特权进程调用 `setuid()` 时，仅能修改进程的 EUID。而且，仅能将 EUID 修改成相应的 RUID 或 Saved Set UID  
+
+- 当特权进程以一个非 0 参数调用 `setuid()` 时，其 RUID、 EUID 和 Saved Set UID 均被置为 uid 参数所指定的值。这一操作是单向的，一旦特权进程以此方式修改了其 ID，那么所有特权都将丢失，且之后也不能再使用 `setuid()` 调用将有效用户 ID 重置为 0。如果不希望发生这种情况，使用 `seteuid()` 或者 `setreuid()` 系统调用来替代 `setuid()`，对 GID 的修改不会引起进程特权的丢失  
+
+```c
+#include <unistd.h>
+
+int seteuid(uid_t uid);
+int setegid(gid_t gid);
+
+// return 0 on success or -1 on error
+```
+
+- 非特权级进程仅能将其 EUID/EGID 修改为相应的 RUID/RGID 或者 Saved Set UID/GID
+- 特权级进程能够将其 EUID/EGID 修改为任意值。 若特权进程使用 `seteuid()` 将其有效用户 ID 修改为非 0 值，那么此进程将不再具有特权（但可以恢复特权）  
+
+
+
+**修改 Real ID 和  Effective ID**  
+
+```c
+#include <unistd.h>
+
+int setreuid(uid_t ruid, uid_t euid);
+int setregid(gid_t rgid, gid_t egid);
+
+// return 0 on success or -1 on error
+```
+
+若只想修改其中的一个 ID，可以将另外一个参数指定为 -1  
+
+- 非特权进程只能将其 RUID 设置为当前 RUID 值或 EUID 值，且只能将 EUID 设置为当前 RUID、EUID或 Saved Set UID
+- 特权级进程能够设置其 RUID 和 EUID 为任意值  
+- 只要如下条件之一成立，就能将 Saved Set UID 设置成 EUID 
+  - `ruid` 不为 -1 
+  - 对 EUID 所设置的值不同于系统调用之前的 RUID  
+
+
+
+**获取 Real、Effective 和 Saved Set ID**  
+
+Linux 提供的非标准的系统调用：  
+
+```c
+#define _GNU_SOURCE
+#include <unistd.h>
+
+int getresuid(uid_t *ruid, uid_t *euid, uid_t *suid);
+int getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid);
+
+// return 0 on success or -1 on error
+```
+
+
+
+**修改 Real、Effective 和 Saved Set ID**  
+
+```c
+#define _GNU_SOURCE
+#include <unistd.h>
+
+int setresuid(uid_t ruid, uid_t euid, uid_t suid);
+int setresgid(gid_t rgid, gid_t egid, gid_t sgid);
+
+// return 0 on success or -1 on error
+```
+
+若不想同时修改某个 ID，则需将无意修改的 ID 参数值指定为 -1  
+
+- 非特权进程能够将 RUID、EUID 和 Saved Set UID 中的任一 ID 设置为 RUID、EUID 或 Saved Set UID 之中的任一当前值  
+- 特权级进程能够对其 RUID、EUID 和 Saved Set UID 做任意设置  
+- 不管系统调用是否对其他 ID 做了任何改动，总是将 FSUID 设置为与 EUID（可能是新值）相同  
+
+
+
+现在 Linux 系统上使用 `setfsuid` 和 `setfsgid` 已不是必要的  
+
+**获取辅助 GID**
+
+```c
+#include <unistd.h>
+
+int getgroups(int gidsetsize, gid_t grouplist[]);
+
+// return number of group IDs placed in grouplist on success, or -1 on error
+```
+
+调用程序必须负责为 `grouplist` 数组分配存储空间，并在 `gidsetsize` 参数中指定其长度。若调用成功， `getgroups()` 会返回置于 `grouplist` 中的 GID 数量  
+
+若进程属组的数量超出 `gidsetsize`，则 `getgroups()` 将返回错误，可将 `grouplist` 数组的大小调整为常量 `NGROUPS_MAX+1`  
+
+Linux 2.6.4 版本之前，`NGROUPS_MAX` 的值为 32。始于内核版本 2.6.4，`NGROUPS_MAX` 的值为 65536  
+
+获取 `NGROUPS_MAX` 的方法：调用 `sysconf(_SC_NGROUPS_MAX)` 或读取 `/proc/sys/kernel/ngroups_max` 文件  
+
+
+
+**修改辅助 GID**  
+
+特权级进程能够使用 `setgroups()` 和 `initgroups()` 来修改其辅助 GID 集合  
+
+```c
+#define _BSD_SOURCE
+#include <grp.h>
+
+int setgroups(size_t gidsetsize, const gid_t *grouplist);
+int initgroups(const char *user, gid_t group);
+
+// return 0 on success or -1 on error
+```
+
+`setgroups()` 系统调用用 `grouplist` 数组所指定的集合来替换调用进程的辅助 GID。参数 `gidsetsize` 指定了置于参数 `grouplist` 数组中的 GID 数量  
+
+`initgroups()` 函数将扫描 `/etc/groups` 文件，为 user 创建属组列表，以此来初始化调用进程的辅助 GID。另外，也会将参数 `group` 指定的 GID 追加到进程辅助 GID 的集合中  
+
+
 
 
 
