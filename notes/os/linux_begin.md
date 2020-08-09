@@ -474,7 +474,7 @@ chmod options mode file
 字母：`mode: [ugoa][[+-=][rwxXstugo]]`
 
 - `X`：如果对象是目录或者它已有执行权限，赋予执行权限 
-- `s`：运行时重新设置UID或GID。设置 SUID 和 SGID 位。
+- `s`：运行时重新设置UID或GID。设置 Set UID 和 Set GID 位。
 - `t`：保留文件或目录。 
 - `u/g/o`：将权限设置为跟属主/组/其他一样 
 
@@ -482,20 +482,20 @@ chmod options mode file
 
 ---
 
-**关于 SUID、SGID、sticky bit 的详细介绍：**
+**关于 Set UID、Set GID、sticky bit 的详细介绍：**
 
-**SUID 和 SGID**
+**Set UID 和 Set GID**
 
 ```shell
-chmod u+s exefile  # 设置 SUID
-chmod g+s exefile  # 设置 SGID
+chmod u+s exefile  # 设置 Set UID
+chmod g+s exefile  # 设置 Set GID
 ```
 
-如果一个文件被设置了 SUID 或 SGID 位，会分别表现在所有者或同组用户的权限的可执行位上。
+如果一个文件被设置了 Set UID 或 Set GID 位，会分别表现在所有者或同组用户的权限的可执行位上。
 
-如果设置了 SUID 或者 SGID 的话，进程获得了该文件的 UID 或者 GID。
+如果设置了 Set UID 或者 Set GID 的话，进程获得了该文件的 UID 或者 GID。
 
-这儿有一个实例使用 `passwd` 就是修改用户密码。`passwd` 需要修改 root 权限下的 `/etc/shadow` 和 `/etc/passwd` 文件，可是使用 `ls -l ...`  可以看到，他们的 user 为 root。那么如何在非 root 权限下修改密码呢？这时候就是 SUID 起作用了。可以使用 `ls -l /usr/passwd` 可以看到设置了 SUID 位。
+这儿有一个实例使用 `passwd` 就是修改用户密码。`passwd` 需要修改 root 权限下的 `/etc/shadow` 和 `/etc/passwd` 文件，可是使用 `ls -l ...`  可以看到，他们的 user 为 root。那么如何在非 root 权限下修改密码呢？这时候就是 Set UID 起作用了。可以使用 `ls -l /usr/passwd` 可以看到设置了 Set UID 位。
 
 ```txt
 -rwsr-xr-x 1 root root 59680 May 17  2017 /usr/bin/passwd
@@ -530,7 +530,7 @@ int main()
 
 编译好上述代码，假设生成 `a.out`，在 root 权限下，创建 `a.txt` 文件，其权限为 `-rw-r--r--`。
 
-先不设置 SUID，在非 root 用户权限下，执行 `a.out`，这时候 `write` 调用会发送错误：
+先不设置 Set UID，在非 root 用户权限下，执行 `a.out`，这时候 `write` 调用会发送错误：
 
 ```txt
 uid = 1000
@@ -538,7 +538,7 @@ euid = 1000
 write error: Bad file descriptor
 ```
 
-现在在 `a.out` 上加上 SUID 之后，成功写入文件并输出：
+现在在 `a.out` 上加上 Set UID 之后，成功写入文件并输出：
 
 ```txt
 uid = 1000
