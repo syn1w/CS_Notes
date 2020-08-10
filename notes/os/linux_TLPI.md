@@ -1696,5 +1696,161 @@ int initgroups(const char *user, gid_t group);
 
 
 
+# 十、时间
+
+程序可能会关注两种时间类型：真实时间和进程时间  
+
+大多数计算机体系结构都内置有硬件时钟，使内核得以计算真实时间和进程时间  
 
 
+
+## 1. 日历时间
+
+无论地理位置如何， UNIX 系统内部对时间的表示方式均是以自 Epoch 以来的秒数来度量的， Epoch 亦即通用协调时间（ UTC，以前也称为格林威治标准时间，或 GMT）的 1970 年 1 月 1 日早晨零点。这也是 UNIX 系统问世的大致日期。日历时间存储于类型为 `time_t` 的变量中，此类型是由 SUSv3 定义的整数类型  
+
+```c
+#include <sys/time.h>
+
+struct timeval {
+    time_t      tv_sec;  // Seconds since UTC 1970 Jan 1 00:00:00 
+    suseconds_t tv_usec; // Additional microseconds(long int)
+};
+
+int gettimeofday(struct timeval *tv, struct timezone *tz);
+// return 0 on success or -1 on error
+
+#include <time.h>
+
+time_t time(time_t *timep);
+// return number of seconds since the Epoch, or (time)-1 on error
+```
+
+`gettimeofday` 的 `tz` 参数已经废弃，现在始终将其置为 `NULL`，返回的微秒依赖于具体的架构  
+
+如果 `timep` 参数不为 `NULL`，那么还会将自 Epoch 以来的秒数置于 `timep` 所指向的位置  
+
+`time` 以两种方式（返回值和参数）返回相同的值，不过往往会采用 `t = time(NULL);` 调用  
+
+
+
+## 2. 时间转换函数
+
+![time functions](../../imgs/linux/TLPI/10_1.png)  
+
+**将 `time_t` 转换为可打印格式**  
+
+```c
+#include <time.h>
+
+char* ctime(const time_t *timep);
+// return pointer to statically allocated string terminated
+// by newline and \0 on success, or NULL on error
+```
+
+将返回一个 26 字节(包含换行符和终止字符)的字符串，包含保准格式的日期和时间，比如 `Mon Aug 10 07:32:34 2020`  
+
+`ctime()` 函数在进行转换时，会自动对本地时区和 DST 设置加以考虑  
+
+返回的字符串经由静态分配，下一次对 `ctime()` 的调用会将其覆盖，调用 `ctime()`、 `gmtime()`、 `localtime()` 或 `asctime()` 中的任一函数，都可能会覆盖由其他函数返回，且经静态分配的数据结构  
+
+`ctime_r()` 是 `ctime()` 的可重入版本  
+
+
+
+**`time_t` 和 `struct tm` 之间转换**  
+
+```c
+#include <time.h>
+
+struct tm {
+  	int tm_sec;     // Seconds [0, 60]
+    int tm_min;     // Minutes [0, 59]
+    int tm_hour;    // Hours [0, 23]
+    int tm_mday;    // Day of the month [1, 31]
+    int tm_mon;     // Month [0, 11]
+    int tm_year;    // Year since 1900
+    int tm_wday;    // Day of the week (Sunday = 0)
+    int tm_yday;    // Day in the year [0-365] (1 Jan = 0)
+    int tm_isdst;   // Daylight saving time flag
+                    //   > 0: DST is in effect;
+                    //   = 0: DST is not effect;
+                    //   < 0: DST information not available
+};
+
+// time_t -> UTC(GM) tm
+struct tm *gmtime(const time_t *timep);
+// time_t -> local tm
+struct tm *localtime(const time_t *timep);
+
+// return a pointer to a statically allocated broken-down(tm)
+// time structure on success or NULL on error
+```
+
+`gm` 是格林威治标准时间  
+
+```c
+// local tm -> time_t
+time_t mktime(struct tm* timeptr);
+```
+
+函数 `mktime()` 可能会修改 `timeptr` 所指向的结构体，至少会确保对 `tm_wday` 和 `tm_yday` 字段值的设置，会与其他输入字段的值能对应起来  
+
+任何一个字段的值超出范围， `mktime()` 都会将其调整回有效范围之内，并适当调整其他字段。所有这些调整，均发生于 `mktime()` 更新 `tm_wday` 和 `tm_yday` 字段并计算返回值 `time_t` 之前  
+
+`mktime()` 在进行转换时会对时区进行设置。此外， DST 设置的使用与否取决于输入字段 `tm_isdst` 的值  
+
+若 `tm_isdst` 为 0，则将这一时间视为标准间，即忽略夏令时；若 `tm_isdst` 大于 0，则将这一时间视为夏令时；若 `tm_isdst` 小于 0，则试图判定 DST 在每年的这一时间是否生效  
+
+
+
+**`struct tm` 转换为打印时间**
+
+```c
+#include <time.h>
+
+char *asctime(const struct tm *timeptr);
+// return pointer to statically allocated string terminated by 
+// newline and \0 on success or NULL on error
+```
+
+可重入版本为 `asctime_r`  
+
+本地时区设置对 `asctime()` 没有影响，因为其所转换的是一个分解时间，该时间通常要么已然通过 `localtime()` 作了本地化处理，要么早已经由 `gmtime()` 转换成了 UTC  
+
+
+
+把一个 `struct tm` 转换为打印格式时，函数 `strftime()` 可以提供更为精确的控制  
+
+```c
+#include <time.h>
+
+size_t strftime(char *outstr, size_t maxsize, const char *format,
+                const struct tm *timeptr);
+// return number of bytes placed in outstr(excluding
+// terminating null byte) on success or 0 on error
+```
+
+`strftime format` 说明见[这里](https://zh.cppreference.com/w/c/chrono/strftime)  
+
+
+
+**打印时间转换为 `struct tm`**
+
+```c
+#define _XOPEN_SOURCE
+#include <time.h>
+
+char *strptime(const char *str, const char *format, struct tm* timeptr);
+// return pointer to next unprocessed character in str
+// on success or NULL on error
+```
+
+函数 `strptime()` 是 `strftime()` 的逆向函数，将包含日期和时间的字符串转换成一分解时间  `struct tm`  
+
+函数 `strptime()` 按照参数 `format` 内的格式要求， 对由日期和时间组成的字符串 `str` 加以解析，并将转换后的分解时间置于指针 `timeptr` 所指向的结构体中  
+
+如果成功， `strptime()` 返回一指针，指向 `str` 中下一个未经处理的字符。 （如果字符串中还包含有需要应用程序处理的额外信息，这一特性就能派上用场。 ）如果无法匹配整个格式字符串， `strptime()` 返回 `NULL`，以示出现错误  
+
+glibc 在实现 `strptime()` 时，并不修改 `tm` 结构体中那些未获 `format` 说明符初始化的字段。这也意味着可以根据多个字符串  
+
+大多数情况下，用 `memset()` 把整个结构体置为 0 也就足够了，但要留心，在 glibc 和许多其他时间转换函数的实现中， `m_mday` 字段值为 0，意为上月的最后一天。最后还要注意，`strptime()` 从不设置 `tm` 结构体的 `tm_isdst` 字段  
