@@ -1854,3 +1854,161 @@ char *strptime(const char *str, const char *format, struct tm* timeptr);
 glibc 在实现 `strptime()` 时，并不修改 `tm` 结构体中那些未获 `format` 说明符初始化的字段。这也意味着可以根据多个字符串  
 
 大多数情况下，用 `memset()` 把整个结构体置为 0 也就足够了，但要留心，在 glibc 和许多其他时间转换函数的实现中， `m_mday` 字段值为 0，意为上月的最后一天。最后还要注意，`strptime()` 从不设置 `tm` 结构体的 `tm_isdst` 字段  
+
+
+
+## 3. 时区
+
+不同的国家（有时甚至是同一国家内的不同地区）使用不同的时区和夏时制。关于时区和夏时制的细节都被 C 库函数包办了  
+
+时区信息文件位于 `/usr/share/zoneinfo` 中，该目录下的每个文件都包含了一个特定国家或地区内时区制度的相关信息，且往往根据其所描述的时区来加以命名  
+
+时区的本地时间由时区文件 `/etc/localtime` 定义  
+
+
+
+## 4. locale
+
+SUSv3 对 locale 的定义为：用户环境中依赖于语言和文化习俗的一个子集  
+
+理想情况下，意欲在多个地理区位运行的任何程序都应处理地区（ locales）概念，以期以用户的语言和格式来显示和输入信息。这也构成了一个相当复杂的课题——国际化（internationalization)。  
+
+经常将术语 internationalization 写为 I18N  
+
+地区信息维护于/usr/share/local（在一些发行版本中为/usr/lib/local）之下的目录层次结构中。该目录下的每个子目录都包含一特定地区的信息  
+
+可以使用 `locale -a` 列出定义的整套地区  
+
+
+
+**设置 locale**  
+
+```c
+#include <locale.h>
+
+char* setlocale(int category, const char* locale);
+// return pointer to a string(usually statically allocated) identifying
+// the new or current locale on success, or NULL or error
+```
+
+关于 `category` 参数：
+
+|   category    |                      目的                      |
+| :-----------: | :--------------------------------------------: |
+|  `LC_CTYPE`   |         包含字符分类以及大小写转换规则         |
+| `LC_COLLATE`  |             针对一字符集的排序规则             |
+| `LC_MONETARY` |              对货币值的格式化规则              |
+| `LC_NUMERIC`  |          对货币值以外的数字格式化规则          |
+|   `LC_TIME`   |          包含对时间和日期的格式化规则          |
+| `LC_MESSAGES` | 针对肯定和否定（是/否）响应消息，比如 `yes/no` |
+|   `LC_ALL`    |               以上所有 category                |
+
+`category` 参数选择设置那一部分，因此可以设置时间显示格式是德国的，货币符号是美国的  
+
+`locale` 参数指定系统上已定义的一个地区，如果是空字符串，从环境变量获取地区的设置  
+
+
+
+## 5. 更新系统时钟
+
+两个系统时钟的接口：`settimeofday` 和 `adjtime`  
+
+这些接口都很少被应用程序使用，因为系统时间通常是由工具软件维护，如网络时间协议（Network Time Protocol）守护进程，并且它们需要调用者已被授权（ `CAP_SYS_TIME`）  
+
+```c
+#define _BSD_SOURCE
+#include <sys/time.h>
+
+int settimeofday(const struct timeval *tv, const struct timezone *tz);
+// return 0 on success or -1 on error
+```
+
+和 `gettimeofday` 一样，`tz` 参数被废弃，应该指定为 `NULL`  
+
+`settimeofday()` 调用所造成的那种系统时间的突然变化， 可能会对依赖于系统时钟单调递增的应用造成有害的影响  
+
+当对时间做微小调整时（几秒钟误差），通常是推荐使用库函数 `adjtime()`，它将系统时钟逐步调整到正确的时间  
+
+```c
+#define _BSD_SOURCE
+#include <sys/time.h>
+
+int adjtime(struct timeval *delta, struct timeval *olddelta);
+```
+
+`delta` 参数指向一个 `timeval` 结构体， 指定需要改变时间的秒和微秒数。 如果这个值是正数，那么每秒系统时间都会额外拨快一点点，直到增加完所需的时间。如果 `delta` 值为负时，时钟以类似的方式减慢  
+
+在 `adjtime()` 函数执行的时间里，它可能无法完成时钟调整。在这种情况下，剩余未经调整的时间存放在 `olddelta` 指向的 `timeval` 结构体内  
+
+SUSv3 未定义 `adjtime()`，可大多数 UNIX 实现提供了这个函数  
+
+
+
+## 6. 软件时钟(jiffies)
+
+ 时间相关的各种系统调用的精度是受限于系统软件时钟（ software clock)的分辨率，它的度量单位被称为 jiffies。 jiffies 的大小是定义在内核源代码的常量 HZ。这是内核按照 round-robin 的分时调度算法分配 CPU 进程的单位  
+
+最终导致软件时钟频率成为一个可配置的内核的选项（包括处理器类型和特性，定时器的频率）。自 2.6.13 内核，时钟频率可以设置到 100、250（默认）或 1000 赫兹，对应的 jiffy 值分别为 10、 4、 1 毫秒。自内核 2.6.20，增加了一个频率： 300 赫兹，它可以被两种常见的视频帧速率 25 帧每秒（ PAL）和 30 帧每秒（ NTSC）整除  
+
+
+
+## 7. 进程时间
+
+进程时间是进程创建后使用的 CPU 时间数量  
+
+- 用户 CPU 时间是在用户模式下执行所花费的时间。有时也称为虚拟时间(virtual time)
+- 系统 CPU 时间是在内核模式中执行所花费的时间  
+
+`time` 命令可以列出 real、user、sys 时间  
+
+```c
+#include <sys/times.h>
+
+struct tms {
+    clock_t tms_utime;  // User CPU time
+    clock_t tms_stime;  // System CPU time
+    clock_t tms_cutime; // User CPU time of all (waited for) children
+    clock_t tms_csime;  // System CPU time of all (waited for children)
+};
+
+clock_t times(struct tms *buf);
+// return number of clock ticks sysconf(_SC_CLK_TCK)
+// since arbitrary time in past on success or (clock_t)-1 on error
+```
+
+`clock_t` 用时钟计时单元（clock tick）为单位度量时间的整型值  
+
+我们可以调用 `sysconf(_SC_CLK_TCK)` 来获得每秒包含的时钟计时单元数，然后用这个数字除以 clock_t 转换为秒  
+
+大多数 Linux 的硬件架构， `sysconf(_SC_CLK_TCK)` 返回 100  
+
+因为返回是从过去任意点流逝的 clock tick，因此这个返回值唯一的用法是通过计算一对 `times()` 调用返回的值的差，来计算进程执行消耗的时间  
+
+需要注意 `times` 的返回值是不靠谱的，因为可能溢出 `clock_t` 的有效表示范围，此时 `clock_t` 将再次从 0 开始  
+
+在 Linux 上，我们可以指定 buf 参数为 NULL，SUSv3 并未定义 buf 可以使用 NULL  
+
+```c
+// Linux
+long SC_CLK_TCK = sysconf(_SC_CLK_TCK); // usually 100
+clock_t t1 = times(NULL);
+// do something
+clock_t t2 = times(NULL);
+long second = (t2 - t1) / SC_CLK_TCK;
+```
+
+
+
+
+
+```c
+#include <time.h>
+
+clock_t clock(void);
+// return total CPU time used by calling process measured in
+// CLOCKS_PER_SEC, or (clock_t)-1 on error
+```
+
+虽然 `clock()` 和 `times()` 返回相同的数据类型 `clock_t`，这两个接口使用的测量单位却并不相同。这是历史原因造成了 `clock_t` 定义的冲突  
+
+返回值差值 除以 `CLOCKS_PER_SEC` 活得秒数，`CLOCKS_PER_SEC` 是常量 10000
