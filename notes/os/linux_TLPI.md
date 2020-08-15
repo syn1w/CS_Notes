@@ -2094,3 +2094,67 @@ long fpathconf(int fd, int name);
 
 
 
+# 十二、系统和进程信息
+
+讨论 `/proc` 和 `uname`系统调用  
+
+
+
+## 1. /proc
+
+UNIX 实现提供了一个 `/proc` 虚拟文件系统。该文件系统驻留于`/proc` 目录中，包含了各种用于展示内核信息的文件，并且允许进程通过常规文件 I/O 系统调用来方便地读取，有时还可以修改这些信息  
+
+之所以将 `/proc` 文件系统称为虚拟，是因为其包含的文件和子目录并未存储于磁盘上，而是由内核在进程访问此类信息时动态创建而成  
+
+获取与进程有关的信息： `/proc/PID`  
+
+**`/proc/PID` 目录下文件节选**：  
+
+|  文件   |                       描述                        |
+| :-----: | :-----------------------------------------------: |
+| cmdline |             以 `\0` 分隔的命令行参数              |
+|   cwd   |            指向当前工作目录的符号链接             |
+| Environ |     `NAME=value` 键值对环境列表，以 `\0` 分隔     |
+|   exe   |            指向正在执行文件的符号链接             |
+|   fd    |   文件目录，包含了指向由进程打开文件的符号链接    |
+|  maps   |                     内存映射                      |
+|   mem   |                   进程虚拟内存                    |
+| mounts  |                   进程的安装点                    |
+|  root   |               指向根目录的符号链接                |
+| status  | 各种信息（比如，进程 ID、凭证、内存使用量、信号） |
+|  task   |        为进程中的每个线程均包含一个子目录         |
+
+**`/proc` 目录下的其他信息**：  
+
+![/proc](../../imgs/linux/TLPI/12_1.png)
+
+
+
+## 2. uname()
+
+`uname()` 系统调用返回了一系列关于主机系统的标识信息，存储于 utsbuf 所指向的结构中  
+
+```c
+#include <sys/utsname.h>
+
+struct utsname {
+    char sysname[];    /* Operating system name (e.g., "Linux") */
+    char nodename[];   /* Name within "some implementation-defined network" */
+    char release[];    /* Operating system release (e.g., "2.6.28") */
+    char version[];    /* Operating system version */
+    char machine[];    /* Hardware identifier */
+#ifdef _GNU_SOURCE
+    char domainname[]; /* NIS or YP domain name */
+#endif
+};
+
+int uname(struct utsname* utsbuf);
+// return 0 on success or -1 on error
+```
+
+
+
+`uname` 同时也是一条 shell 命令，可能的输出比如 `Linux`  
+
+
+
