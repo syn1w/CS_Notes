@@ -2012,3 +2012,85 @@ clock_t clock(void);
 虽然 `clock()` 和 `times()` 返回相同的数据类型 `clock_t`，这两个接口使用的测量单位却并不相同。这是历史原因造成了 `clock_t` 定义的冲突  
 
 返回值差值 除以 `CLOCKS_PER_SEC` 活得秒数，`CLOCKS_PER_SEC` 是常量 10000
+
+
+
+# 十一、系统限制和选项
+
+## 1. 系统限制
+
+SUSv3 要求，针对其所规范的每个限制，所有实现都必须支持一个最小值  
+
+在大多数情况下，会将这些上限最小值定义为 `<limits.h>` 文件中的常量，其命名则冠以字符串`_POSIX_`，而且（通常）还包含字符串`_MAX`，因此，常量命名形如 `_POSIX_XXX_MAX`  
+
+最小值的意思是实现定义不能小于最小值  
+
+在特定系统上获取限制，通常更为可取的方法是使用 `<limits.h>`文件、 `sysconf()` 或 `pathconf()`  
+
+SUSv3 限制总结：
+
+|       名称        | 上限最小值 |    `sysconf/pathconf`参数命名     |                             描述                             |
+| :---------------: | :--------: | :-------------------------------: | :----------------------------------------------------------: |
+|     `ARG_MAX`     |    4096    |           `_SC_ARG_MAX`           |  提供给 `exec` 的参数与环境变量所占存储空间之和的最大字节数  |
+|       none        |    none    |           `_SC_CLK_TCK`           |                   `times()` 提供的度量单位                   |
+| `LOGIN_NAME_ MAX` |     9      |       `_SC_LOGIN_NAME_MAX`        |                 登录名的最大长度(含终止字符)                 |
+|    `OPEN_MAX`     |     20     |          `_SC_OPEN_MAX`           | 进程同时可打开的文件描述符的最大 数量，比可用文件描述符的最大数量 多 1 个 |
+|   `NGROUPS_MAX`   |     8      |         `_SC_NGROUPS_MAX`         |                进程所属辅助组 ID 数量的最大值                |
+|       none        |     1      | `_SC_PAGESIZE`<br>`_SC_PAGE_SIZE` |                  一个虚拟内存页的大小(字节)                  |
+|    `RTSIG_MAX`    |     8      |          `_SC_RTSIG_MAX`          |                    单一实时信号的最大数量                    |
+|  `SIGQUEUE_MAX`   |     32     |        `_SC_SIGQUEUE_MAX`         |                    排队实时信号的最大数量                    |
+|   `STREAM_MAX`    |     8      |         `_SC_STREAM_MAX`          |               同时可打开的 stdio 流的最大数量                |
+|    `NAME_MAX `    |     14     |          `_PC_NAME_MAX`           |        排除终止空字符外，文件名称可达的 最大字节长度         |
+|    `PATH_MAX`     |    256     |          `_PC_PATH_MAX`           |          路径名称可达的最大字节长度，含尾 部空字符           |
+|    `PIPE_BUF`     |    512     |          `_PC_PIPE_BUF`           |       一次性（原子操作）写入管道或 FIFO 中的最大字节数       |
+
+
+
+从 Shell 中获取限制和选项：
+
+```sh
+getconf variable-name [ pathname ]
+# example 
+getconf ARG_MAX
+```
+
+
+
+运行时获得系统限制  
+
+```c
+#include <unistd.h>
+
+long sysconf(int name);
+long pathconf(const char* pathname, int name);
+long fpathconf(int fd, int name);
+// return value of limit specified by name
+// or -1 if limit is indeterminate or an error occurred
+```
+
+`pathconf()` 和 `fpathconf()` 参数 name 则是定义于 `<unistd.h>` 文件中的 `_PC_` 系列常量之一  
+
+
+
+## 2. 系统选项
+
+某些选项在 SUSv3 中是必需的，即编译时其常量值总应大于 0。历史上，这些选项一度确实曾是可选项，但如今已是时过境迁。“备注”栏会以字符“+”标识此类选项  
+
+对于某些选项，其编译时常量必须为-1 以外的值。换言之，要么必须支持该选项，要么必须有方法可以检查出系统在运行时是否支持该选项。这些选项的“备注”栏以字符“*”标识这些选项  
+
+|                           选项名                           |                            描 述                             | 备注 |
+| :--------------------------------------------------------: | :----------------------------------------------------------: | :--: |
+|       `_POSIX_ASYNCHRONOUS_IO (_SC_ASYNCHRONOUS_IO)`       |                           异步 I/O                           |      |
+|      `_POSIX_CHOWN_RESTRICTED (_PC_CHOWN_RESTRICTED)`      | 仅有特权级进程能够使用 chown() 和 fchown() 函数将文件的用户 ID 和组 ID 修改为任意值 |  *   |
+|           `_POSIX_JOB_CONTROL (_SC_JOB_CONTROL)`           |                           作业控制                           |  +   |
+|       `_POSIX_MESSAGE_PASSING (_SC_MESSAGE_PASSING)`       |                        POSIX 消息队列                        |      |
+|   `_POSIX_PRIORITY_SCHEDULING (_SC_PRIORITY_SCHEDULING)`   |                           进程调度                           |      |
+|      `_POSIX_REALTIME_SIGNALS (_SC_REALTIME_SIGNALS)`      |                         实时信号扩展                         |  +   |
+|                 `_POSIX_SAVED_IDS(none) `                  |     进程拥有的 (saved)set-user-ID 和 (saved)set-group-ID     |      |
+|            `_POSIX_SEMAPHORES (_SC_SEMAPHORES)`            |                          POSIX 信号                          |      |
+| `_POSIX_SHARED_MEMORY_OBJECTS (_SC_SHARED_MEMORY_OBJECTS)` |                      POSIX 共享内存对象                      |      |
+|               `_POSIX_THREADS (_SC_THREADS)`               |                          POSIX 线程                          |      |
+|               `_XOPEN_UNIX (_SC_XOPEN_UNIX)`               |                      支持 XSI 扩展功能                       |      |
+
+
+
