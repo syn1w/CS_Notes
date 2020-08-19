@@ -2158,3 +2158,150 @@ int uname(struct utsname* utsbuf);
 
 
 
+# 十三、文件I/O缓冲
+
+## 1. I/O内核缓冲
+
+`read()` 和 `write()` 系统调用在操作磁盘文件时不会直接发起磁盘访问，而是仅仅在用户空间缓冲区与内核缓冲区高速缓存（ kernel buffer cache）之间复制数据  
+
+例如，如下调用将 3 个字节的数据从用户空间内存传递到内核空间的缓冲区中  
+
+```c
+write(fd, "abc", 3);
+```
+
+`write()` 随即返回。在后续某个时刻，内核会将其缓冲区中的数据写入磁盘  
+
+如果在此期间，另一进程试图读取该文件的这几个字节，那么内核将自动从缓冲区高速缓存中提供这些数据，而不是从文件中读取过期内容  
+
+对输入而言，内核从磁盘中读取数据并存储到内核缓冲区中。 `read()` 调用将从该缓冲区中读取数据，直至把缓冲区中的数据取完，这时，内核会将文件的下一段内容读入缓冲区高速缓存  
+
+意在使 `read()` 和 `write()` 调用的操作更为快速，因为它们不需要等待（缓慢的）磁盘操作。  
+
+如果与文件发生大量的数据传输，通过采用大块空间缓冲数据，以及执行更少的系统调用，可以极大地提高 I/O 性能  
+
+根据 profile 测试，`BUF_SIZE` 为 4096 就将近达到最快的速度，所以在使用 `read/write` 读写大块文件时调用时，设置 buffer size 为 4096 字节比较合适  
+
+
+
+## 2. stdio 库缓存
+
+当操作磁盘文件时，缓冲大块数据以减少系统调用， C 语言函数库的 I/O 函数（比如，`fprintf()`、 `fscanf()`、 `fgets()`、 `fputs()`、 `fputc()`、 `fgetc()`）正是这么做的。因此，使用 stdio 库可以使编程者免于自行处理对数据的缓冲，无论是调用 `write()` 来输出，还是调用 `read()` 来输入  
+
+
+
+**设置 stdio 流的缓冲模式**  
+
+调用 `setvbuf()` 函数，可以控制 stdio 库使用缓冲的形式  
+
+```c
+#include <stdio.h>
+
+int setvbuf(FILE *stream, char *buf, int mode, size_t size);
+// return 0 on success or nonzero on error
+```
+
+如果参数 buf 不为 NULL，那么其指向 size 大小的内存块以作为 stream 的缓冲区，而且 buf 应该是在堆中为该缓冲区分配的一块空间；若 buf 为 NULL，那么 stdio 库会为 stream 自动分配一个缓冲区  
+
+`mode` 参数：
+
+- `_IONBF`：不对 I/O 进行缓冲。每个 stdio 库函数将立即调用 write()或者 read()，并且忽略 buf 和 size
+  参数，可以分别指定两个参数为 NULL 和 0，`stderr` 默认属于这种模式  
+- `_IOLBF`：采用行缓冲 I/O。指代终端设备的流默认属于这一类型。对于输出流，在输出一个换行符
+  （除非缓冲区已经填满）前将缓冲数据。对于输入流，每次读取一行数据  
+- `_IOFBF`：采用全缓冲 I/O。单次读、写数据（通过 `read()` 或 `write()` 系统调用）的大小与缓冲区相同  
+
+
+
+`setbuf` 和 `setbuffer` 类似于 `setvbuf` 函数  
+
+```c
+#include <stdio.h>
+void setbuf(FILE *stream, char *buf);
+// BUFSIZ 定义于 stdio.h 文件中，glibc 库一般为常量 8192
+// <=> setvbuf(fp, buf, (buf != NULL) ? _IO_FBF : _IONBF, BUFSIZ);
+
+#define _BSD_SOURCE
+#include <stdio.h>
+void setbuffer(FILE *stream, char *buf, size_t size);
+// <=> setvbuf(fp, buf, (buf != NULL) ? _IO_FBF : _IONBF, size);
+```
+
+
+
+**刷新 stdio 缓冲区**  
+
+```c
+#include <stdio.h>
+
+int fflush(FILE *stream);
+// return 0 on success or EOF on error
+```
+
+若参数 stream 为 NULL，则 fflush()将刷新所有的 stdio 缓冲区  
+
+也能将 fflush()函数应用于输入流，这将丢弃业已缓冲的输入数据  
+
+当关闭相应流时，将自动刷新其 stdio 缓冲区  
+
+若打开一个流同时用于输入和输出，则 C99 标准中提出了两项要求。首先，一个输出操作不能紧跟一个输入操作，必须在二者之间调用 fflush()函数或是一个文件定位函数（ fseek()、 fsetpos()或者 rewind()）。其次，一个输入操作不能紧跟一个输出操作，必须在二者之间调用一个文件定位函数，除非输入操作遭遇文件结尾  
+
+
+
+**同步 I/O 数据完整性和同步 I/O 文件完整性**  
+
+SUSv3 将同步 I/O 完成1定义为：某一 I/O 操作，要么已成功完成到磁盘的数据传递，要么被诊断为不成功  
+
+SUSv3 定义了两种不同类型的同步 I/O 完成：
+
+第一种同步 I/O 完成类型是 synchronized I/O data integrity completion， 旨在确保针对文件的一次更新传递了足够的信息（到磁盘），以便于之后对数据的获取  
+
+- 就读操作而言，这意味着被请求的文件数据已经（从磁盘）传递给进程。若存在任何影响到所请求数据的挂起写操作，那么在执行读操作之前，会将这些数据传递到磁盘  
+- 就写操作而言，这意味着写请求所指定的数据已传递（至磁盘）完毕，且用于获取数据的所有文件元数据也已传递（至磁盘）完毕。此处的要点在于要获取文件数据，并非需要传递所有经过修改的文件元数据属性。发生修改的文件元数据中需要传递的属性之一是文件大小（如果写操作确实扩展了文件）。相形之下，如果是文件时间戳发生了变化，就无需在下次获取数据前将其传递到磁盘。  
+
+另一种是 synchronized I/O file integrity completion，是 synchronized I/O data integrity completion 的超集，区别在于在对文件的一次更新过程中，要将所有发生更新的文件元数据都传递到磁盘上，即使有些在后续对文件数据的读操作中并不需要  
+
+针对 synchronized I/O data completion 状态，如果是诸如最近修改时间戳之类的元数据属性发生了变化，那么是无需传递到磁盘的  
+
+
+
+**用于控制文件 I/O 内核缓冲的系统调用**  
+
+`fsync()` 系统调用将使缓冲数据和与打开文件描述符 fd 相关的所有元数据都刷新到磁盘上。调用 `fsync()` 会强制使文件处于 Synchronized I/O file integrity completion 状态  
+
+fdatasync()系统调用的运作类似于 fsync()，只是强制文件处于 synchronized I/O data integrity completion 的状态  
+
+sync()系统调用会使包含更新文件信息的所有内核缓冲区（即数据块、指针块、元数据等）刷新到磁盘上  
+
+```c
+#include <unistd.h>
+
+int fsync(int fd);
+int fdatasync(int fd);
+// return 0 on success or -1 on error
+
+void sync(void);
+```
+
+在 Linux 实现中， sync()调用仅在所有数据已传递到磁盘上（或者至少高速缓存）时返回。然而， SUSv3 却允许 sync()实现只是简单调度一下 I/O 传递，在动作未完成之前即可返回  
+
+
+
+**`O_SYNC/` 标志**  
+
+调用 `open` 函数时，如果指定 `O_SYNC` 标志，则会使所有后续输出同步  
+
+调用 `open()` 后，每个 `write()` 调用会自动将文件数据和元数据刷新到磁盘上，即按照 Synchronized I/O file integrity completion 的要求执行写操作  
+
+`O_SYNC` 标志对性能影响极大，如果需要强制刷新内核缓冲区，那么在设计应用程序时就应考虑是否可以使用大尺寸的 write()缓冲区，或者在调用 `fsync()` 或 `fdatasync()` 时谨慎行事，而不是在打开文件时就使用 `O_SYNC` 标志  
+
+
+
+**`O_DSYNC` 和 `O_RSYNC` 标志**  
+
+`O_DSYNC` 标志要求写操作按照 synchronized I/O data integrity completion 来执行（类似于
+`fdatasync()`）。与之对应的是 `O_SYNC` 标志，遵从 synchronized I/O file integrity completion
+（类似于 `fsync()` 函数）  
+
+`O_RSYNC` 标志是与 `O_SYNC` 标志或 `O_DSYNC` 标志配合一起使用的，将这些标志对写操作的作用结合到读操作中  
+
