@@ -2305,3 +2305,74 @@ void sync(void);
 
 `O_RSYNC` 标志是与 `O_SYNC` 标志或 `O_DSYNC` 标志配合一起使用的，将这些标志对写操作的作用结合到读操作中  
 
+
+
+## 3. I/O 模式建议
+
+`posix_fadvise()` 系统调用允许进程就自身访问文件数据时可能采取的模式通知内核  
+
+```c
+#define _XOPEN_SOURCE 600
+#include <fcntl.h>
+
+int posix_fadvise(int fd, off_t offset, off_t len, int advice);
+```
+
+内核可以（但不必非要）根据 `posix_fadvise()` 所提供的信息来优化对缓冲区高速缓存的使用，进而提高进程和整个系统的性能  
+
+参数 `offset` 和 `len` 确定了建议所适用的文件区域。 `offset` 指定了区域起始的偏移量， `len` 指定了区域
+的大小（以字节数为单位）。 `len` 为 0 表示从 `offset` 开始，直至文件结尾  
+
+`advice` 参数：
+
+- `POSIX_FADV_NORMAL`： 默认行为，无特别建议  
+- `POSIX_FADV_SEQUENTIAL`：从低偏移量到高偏移量顺序读取，在 Linux 上，该操作将文件预读窗口大
+  小置为默认值的两倍  
+- `POSIX_FADV_RANDOM`：进程预计以随机顺序访问数据。在 Linux 中，该选项会禁用文件预读  
+- `POSIX_FADV_WILLNEED`：进程预计会在不久的将来访问指定的文件区域。内核将由 offset 和 len 指定区域的文件数据预先填充到缓冲区高速缓存中。后续对该文件的 `read()` 调用将不会阻塞磁盘 I/O，只需从缓冲区高速缓存中抓取数据即可  
+- `POSIX_FADV_DONTNEED`：进程预计在不久的将来将不会访问指定的文件区域。这一操作给内核的建议是释放相关的高速缓存页面（如果存在的话）。  
+- `POSIX_FADV_NOREUSE`：进程预计会一次性地访问指定文件区域，不再复用。这等于提示内核对指定区域访问一次后即可释放页面  
+
+
+
+## 4. 直接 I/O
+
+本节为 Linux 特有  
+
+始于内核 2.4， Linux 允许应用程序在执行磁盘 I/O 时绕过缓冲区高速缓存，从用户空间直接将数据传递到文件或磁盘设备。有时也称此为直接 I/O（direct I/O）或者裸 I/O(raw I/O)  
+
+使用直接 I/O 可能会大大降低性能  
+
+直接 I/O 只适用于有特定 I/O 需求的应用。例如数据库系统，其高速缓存和 I/O 优化机制均自成一体，无需内核消耗 CPU 时间和内存去完成相同任务  
+
+可针对一个单独文件或块设备（比如，一块磁盘）执行直接 I/O。要做到这点，需要在调用 `open()` 打开文件或设备时指定 `O_DIRECT` 标志  
+
+
+
+**直接 I/O 的对齐限制**  
+
+- 用于传递数据的缓冲区，其内存边界必须对齐为块大小的整数倍  
+- 数据传输的开始点，亦即文件和设备的偏移量，必须是块大小的整数倍块大小（ block size）指设
+  备的物理块大小（通常为 512 字节）  
+- 待传递数据的长度必须是块大小的整数倍  
+
+不遵守上述任一限制均将导致 `EINVAL` 错误  
+
+
+
+## 5. 库函数和系统调用
+
+在同一文件上执行 I/O 操作时， 还可以将系统调用和标准 C 语言库函数混合使用  
+
+```c
+#include <stdio.h>
+
+int fileno(FILE *stream);
+// return the file descriptor on success or -1 on error
+
+FILE *fdopen(int fd, const char *mode);
+// return new file pointer on success or NULL on error
+```
+
+`mode` 参数与 `fopen()` 函数中 `mode` 参数含义相同。例如， r 为读， w 为写， a 为追加  
+
