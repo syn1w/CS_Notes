@@ -2792,3 +2792,319 @@ int fstatvfs(int fd, struct statvfs *statvfsbuf);
 `f_bsize` 和 `f_frsize` 在大多数 Linux 上是相同的  
 
 `fsblkcnt_t` 和 `fsfilcnt_t` 数据类型是由 SUSv3 所定义的整型  
+
+
+
+# 十五、文件属性
+
+探讨文件的各种属性（文件元数据）  
+
+
+
+## 1. stat
+
+```c
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+struct stat {
+    dev_t     st_dev;         /* ID of device containing file */
+    ino_t     st_ino;         /* Inode number */
+    mode_t    st_mode;        /* File type and mode */
+    nlink_t   st_nlink;       /* Number of hard links */
+    uid_t     st_uid;         /* User ID of owner */
+    gid_t     st_gid;         /* Group ID of owner */
+    dev_t     st_rdev;        /* Device ID (if special file) */
+    off_t     st_size;        /* Total size, in bytes */
+    blksize_t st_blksize;     /* Block size for filesystem I/O */
+    blkcnt_t  st_blocks;      /* Number of 512B blocks allocated */
+    /* Since Linux 2.6, the kernel supports nanosecond
+       precision for the following timestamp fields.
+       For the details before Linux 2.6, see NOTES. */
+    struct timespec st_atim;  /* Time of last access */
+    struct timespec st_mtim;  /* Time of last modification */
+    struct timespec st_ctim;  /* Time of last status change */
+#define st_atime st_atim.tv_sec      /* Backward compatibility */
+#define st_mtime st_mtim.tv_sec
+#define st_ctime st_ctim.tv_sec
+};
+
+int stat(const char *pathname, struct stat *statbuf);
+int lstat(const char *pathname, struct stat *statbuf);
+int fstat(int fd, struct stat *statbuf);
+
+// return 0 on success or -1 on error
+```
+
+`st_dev` 字段标识文件所驻留的设备，包括设备的主辅 ID；如果是针对设备的 i-node，用 `st_rdev` 包含设备的主辅 ID ，利用宏 `major/minor` 可以提取 `dev_t` 类型的主、辅 ID，`#define _BSD_SOURCE #include <sys/types.h>`。  
+
+`st_ino` 字段则包含了文件的 i 节点号。  
+
+利用以上两者，可在所有文件系统中唯一标识某个文件  
+
+
+
+`st_mode` 字段内含位掩码，起标识文件类型和指定文件权限的双重作用  
+
+```txt
+ |<- file type ->|<----------------  privilege  ---------------->|
+ +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+ |   |   |   |   | U | G | T | R | W | X | R | W | X | R | W | X |
+ +---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+                             |<--- U --->|<--- G --->|<--- O --->|
+
+U: Set UID
+G: Set GID
+T: Sticky
+```
+
+`st_mode` 与 `S_IFMT` 相位与(&) 可以析取出文件类型  
+
+可以使用以下的代码来判断常规文件，其他类型同理  
+
+```c
+if ((statbuf.st_mode & S_IFMT) == S_IFREG) {
+    printf("regular file\n");
+}
+
+// or
+
+if (S_ISREG(statbuf.st_mode)) {
+    printf("regular file\n");
+}
+```
+
+
+
+|    常量    |    测试宏    |  文件类型   |
+| :--------: | :----------: | :---------: |
+| `S_IFREG`  | `S_ISREG()`  |  常规文件   |
+| `S_IFDIR`  | `S_ISDIR()`  |    目录     |
+| `S_IFCHR`  | `S_ISCHR()`  |  字符设备   |
+| `S_IFBLK`  | `S_ISBLK()`  |   块设备    |
+| `S_IFIFO`  | `S_ISFIFO()` | FIFO 或管道 |
+| `S_IFSOCK` | `S_ISSOCK()` |   套接字    |
+| `S_IFLNK`  | `S_ISLNK()`  |  符号链接   |
+
+
+
+`st_atime/st_mtime/st_ctime` 分别记录了对文件上次的访问时间、上次修改时间和文件状态发生改变的时间，  都是 `time_t` 类型，是标准 UNIX 时间，记录了自 Epoch 以来的秒数  
+
+Linux 2.6 将精度提升到纳秒级，glibc API 的每个字段都是 `strcut timespec` 类型的，字段名称变为 `st_atim/st_mtim/st_ctim`，使用 `st_atim.tv_sec` 和 `st_atim.tv_nsec` 来获取时间  
+
+
+
+## 2. 文件时间戳
+
+**用 utime/utimes 来改变文件时间戳**  
+
+```c
+#include <sys/types.h>
+#include <utime.h>
+
+struct utimbuf {
+    time_t actime;       /* access time */
+    time_t modtime;      /* modification time */
+};
+
+int utime(const char *filename, const struct utimbuf *buf);
+// On success, zero is returned. 
+// On error, -1 is returned, and errno is set appropriately
+```
+
+`utime` 有两种情况：
+
+- 如果 `buf` 为 `NULL` 而且是 root 用户或 EUID 是拥有写权限的文件属主，会将文件的上次访问时间和修改时间设置为当前时间
+- 如果 `buf` 不为 `NULL` 而且是 root 用户或是 EUID 是文件属主  
+
+
+
+```c
+#include <sys/time.h>
+
+struct timeval {
+    long tv_sec;        /* seconds */
+    long tv_usec;       /* microseconds */
+};
+
+int utimes(const char *filename, const struct timeval times[2]);
+int futimes(int fd, const struct timeval tv[2]);
+int lutimes(const char *filename, const struct timeval tv[2]);
+// On success, zero is returned. 
+// On error, -1 is returned, and errno is set appropriately
+```
+
+`utime()` 与 `utimes()` 之间最显著的差别在于后者可以以微秒级精度来指定时间值，Linux 2.6 为文件时间戳提供了纳秒级的精度支持， 在这里也部分得以体现。  
+新的文件访问时间在 `tv[0]` 中指定，新的文件修改时间在 `tv[1]` 中指定  
+
+`futimes` 和 `utimes` 的区别只是传参方式不同  
+
+`lutimes` 若路径名指向一符号链接，则调用不会对该链接进行解引用，而是更改链接自身的时间戳  
+
+
+
+**使用 `utimensat/futimens` 改变文件时间戳**  
+
+utimensat()系统调用（内核自 2.6.22 版本开始支持）和 futimens()库函数（glibc 自版本 2.6开始支持）为设置对文件的上次访问和修改时间戳提供了扩展功能  
+
+- 可按纳秒级精度设置时间戳  
+- 可独立设置某一时间戳  
+- 可独立将任一时间戳置为当前时间  
+
+
+
+```c
+#include <fcntl.h>
+#include <sys/stat.h>
+
+// since Epoch
+struct timespec {
+    time_t tv_sec;
+    long   tv_nsec;
+};
+
+int utimensat(int dirfd, const char *pathname,
+              const struct timespec times[2], int flags);
+
+int futimens(int fd, const struct timespec times[2]);
+// On success, zero is returned.
+// On error, -1 is returned, and errno is set appropriately.
+```
+
+
+
+`dirfd`：
+
+- `AT_FDCWD`，此时对 `pathname` 参数处理和 `utimes` 类似，也可以将其指定为指代目录的文件描述符
+- 为 `AT_SYMLINK_NOFLLOW` 或 `flags` 为 0，意味着 `pathname` 为符号链接时，不会对其解引用  
+
+
+
+如果有意将时间戳之一置为当前时间，则可将相应的 `tv_nsec` 字段指定为特殊值 `UTIME_NOW`  
+
+若希望某一时间戳保持不变，则需把相应的 `tv_nsec` 字段指定为特殊值 `UTIME_OMIT`  
+
+
+
+
+
+## 3. 文件属主
+
+每个文件都有一个与之关联的 UID 和 GID，籍此可以判定文件的属主和属组  
+
+文件创建时，其用户 ID 取自进程的 EUID。而新建文件的组 ID 则取自进程的 EGID（等同于 System V 系统的默认行为），或父目录的组 ID（ BSD 系统的行为）  
+
+
+
+**改变属主**  
+
+```c
+#include <unistd.h>
+
+int chown(const char *pathname, uid_t owner, gid_t group);
+int fchown(int fd, uid_t owner, gid_t group);
+int lchown(const char *pathname, uid_t owner, gid_t group); // symbol link
+// On success, zero is returned.
+// On error, -1 is returned, and errno is set appropriately.
+```
+
+只有特权级进程(`CAP_CHOWN`)才能使用 `chown()` 改变文件的用户 ID。 非特权级进程可使用 `chown()` 将自己所拥有文件的组 ID 改为其所从属的任一属组的 ID，前提是进程的 EUID 与文件的用户 ID 相匹配。特权级进程则可将文件的组 ID 修改为任意值  
+
+
+
+## 4. 文件权限
+
+**普通文件权限**  
+
+之前的 `stat` 调用涉及到文件权限，可以使用 `st_mode` 和下列常量相与来检查对应的权限  
+
+|   常量    | 值(八进制) |    权限位     |
+| :-------: | :--------: | :-----------: |
+| `S_ISUID` |   04000    |    Set UID    |
+| `S_ISGID` |   02000    |    Set GID    |
+| `S_ISVTX` |   01000    |    Sticky     |
+| `S_IRUSR` |   00400    |   User Read   |
+| `S_IWUSR` |   00200    |  User Write   |
+| `S_IXUSR` |   00100    | User Execute  |
+| `S_IRGRP` |   00040    |  Group Read   |
+| `S_IWGRP` |   00020    |  Group Write  |
+| `S_IXGRP` |   00010    | Group Execute |
+| `S_IROTH` |   00004    |  Other Read   |
+| `S_IWOTH` |   00002    |  Other Write  |
+| `S_IXOTH` |   00001    | Other Execute |
+
+还分别将各类（属主、属组及其他）权限掩码定义为常量：`S_IRWXU` (0700)、`S_IRWXG`(070)和 `S_IRWXO`(07)    
+
+
+
+**目录权限**  
+
+读权限：可列出目录之下的内容（即目录下的文件名）。  
+
+写权限：可在目录内创建、删除文件  
+
+可执行权限：可访问目录中的文件。因此，有时也将对目录的执行权限称为 search 权限  
+
+
+
+**sticky 位**  
+
+在老的 UNIX 实现中，提供 sticky 位的目的在于让常用程序的运行速度更快  
+
+若对某程序文件设置了 sticky 位，则首次执行程序时，系统会将其文本1拷贝保存于交换区中，即“粘”（stick）在交换区内，故而能提高后续执行的加载速度。现代 UNIX 实现对内存的管理更为精准，故而也将权限位的这一用法束之高阁  
+
+在现代 UNIX 实现中，sticky 权限位所起的作用全然不同于老的 UNIX 实现  
+
+作用于目录时，sticky 权限位起限制删除位的作用。为目录设置该位，则表明仅当非特权进程具有对目录的写权限，且为文件或目录的属主时，才能对目录下的文件进行删除操作，可藉此机制来创建为多个用户共享的一个目录，各个用户可在其下创建或删除属于自己的文件，但不能删除隶属于其他用户的文件。为 `/tmp` 目录设置 sticky 权限位，原因正在于此  
+
+可通过 `chmod +t file` 或 `chmod()` 系统调用来设置文件的 sticky 权限位  
+
+
+
+**检查文件的访问权限： `access`**  
+
+```c
+#include <unistd.h>
+
+/// @param mode F_OK: exist | R_OK | W_OK | X_OK
+int access(const char *pathname, int mode);
+// On success(all permissions are granted), zero is returned.
+// On error, -1 is returned, and errno is set appropriately.
+```
+
+
+
+**进程文件模式的创建掩码：umask**  
+
+对于新建文件，内核会使用 `open()` 或 `creat()` 中 `mode` 参数所指定的权限。对于新建目录，则会根据 `mkdir()` 的 `mode` 参数来设置权限  
+
+然而，文件模式创建掩码（简称为 `umask`）会对这些设置进行修改。 `umask` 是一种进程属性，当进程新建文件或目录时，该属性用于指明应屏蔽哪些权限位  
+
+进程的 `umask` 通常继承自其父 shell，其结果往往正如人们所期望的那样：用户可以使用 shell 的内置命令 `umask` 来改变 shell 进程的 `umask`，从而控制在 shell 下运行程序的 `umask`  
+
+大多数 shell 的初始化文件会将 `umask` 默认置为八进制值 022，其含义为对于同组或其他用户，应总是屏蔽写权限  
+
+```c
+#include <sys/types.h>
+#include <sys/stat.h>
+
+mode_t umask(mode_t mask);
+
+//  This system call always succeeds and the previous value of the mask is returned.
+```
+
+
+
+## 5. 改变文件权限
+
+```c
+#include <sys/stat.h>
+
+int chmod(const char *pathname, mode_t mode);
+int fchmod(int fd, mode_t mode);
+
+// On success, zero is returned.
+// On error, -1 is returned, and errno is set appropriately.
+```
+
