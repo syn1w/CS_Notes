@@ -3108,3 +3108,144 @@ int fchmod(int fd, mode_t mode);
 // On error, -1 is returned, and errno is set appropriately.
 ```
 
+
+
+# 十六、扩展属性
+
+介绍文件的扩展属性(Extended Attributes)，即以名称-值对形式将任意元数据与文件 i 节点关联起来的技术  
+
+
+
+## 1. 概述
+
+扩展属性可用于实现访问列表和文件能力，还可利用 EA 去记录文件的版本号、与文件的 MIME 类型/字符集有关的信息，或是指向图符的指针？？  
+
+扩展需要有底层文件系统来提供支撑，ext2/3/4，JFS、XFS 等文件系统都支持扩展属性  
+
+**扩展属性的命名空间**  
+
+扩展属性的命名空间格式为 `namespace.name`，可供 `namespace` 使用的值有四个：
+
+- `user`：将在文件权限检查的制约下由非特权级进程操控， 读写扩展属性需要有对文件相应的权限
+- `trusted`：也可由用户进程“驱使”，进程必须具有特权(`CAP_SYS_ADMIN`)  
+- `system`：供内核使用，将系统对象与一文件关联。目前仅支持访问控制列表  
+- `security`：其一，用来存储服务于操作系统安全模块的文件安全标签；其二，将可执行文件与能力关联起来  
+
+
+
+通过 shell 读写扩展属性  
+
+```sh
+# To install attr, such as Debian, need to execute `apt install attr`
+touch tfile
+setfattr -n user.x -v "The past is not dead" tfile
+getfattr -n user.x tfile
+# # file: tfile
+# user.x="The past is not dead."
+
+setfattr -n user.y -v "In fact, is't not even past." tfile
+
+getfattr -d tfile         # dump values of all user EAs
+# # file: tfile
+# user.x="The past is not dead."
+# user.y="In fact, is't not even past."
+
+setfattr -n user.x tfile  # change value of EA to be an empty string
+getfattr -d tfile
+# # file: tfile
+# user.x
+# user.y="In fact, is't not even past."
+
+setfattr -x user.y tfile
+
+getfattr -d tfile
+# # file: tfile
+# user.x
+```
+
+
+
+## 2. 细节
+
+`user` 扩展属性只能作用于文件或目录
+
+此外，若某一目录启用了粘性位（sticky 位），且为其他用户所拥有，则非特权进程不能将一 user 扩展属性置于该目录之上  
+
+
+
+## 3. 相关系统调用
+
+**设置扩展属性**  
+
+```c
+#include <sys/xattr.h>
+
+int setxaatr(const char *pathname, const char *name, const void *value,
+             size_t size, int flags);
+int lsetxaatr(const char *pathname, const char *name, const void *value,
+              size_t size, int flags);
+int fsetxaatr(int fd, const char *name, const void *value,
+              size_t size, int flags);
+
+// return 0 on succcess or -1 on error
+```
+
+`flags`:
+
+- `XATTR_CREATE`：若具有给定 `name` 的扩展属性已经存在，则失败  
+- `XATTR_REPLACE`：若具有给定名称 `name` 的扩展属性不存在，则失败  
+
+
+
+**获取扩展属性**  
+
+```c
+#include <sys/xattr.h>
+
+int getxattr(const char *pathname, const char *name, void *value, size_t size);
+int lgetxattr(const char *pathname, const char *name, void *value, size_t size);
+int fgetxattr(int fd, const char *name, void *value, size_t size);
+
+// return nonnegative size of EA value on success or -1 on error
+```
+
+
+
+**删除扩展属性**  
+
+```c
+#include <sys/xattr.h>
+
+int removexattr(const char *pathname, const char *name);
+int lremovexattr(const char *pathname, const char *name);
+int fremovexattr(int fd, const char *name);
+
+// return 0 on success or -1 on error
+```
+
+
+
+**获取与文件相关联的所有扩展名称的名字**  
+
+```c
+#include <sys/xattr.h>
+
+ssize_t listxattr(const char *pathname, char *list, size_t size);
+ssize_t llistxattr(const char *pathname, char *list, size_t size);
+ssize_t flistxattr(int fd, char *list, size_t size);
+
+// return number of bytes copied into list on success or -1 on error
+```
+
+名称列表以一系列以空字符结尾的字符串形式置于 `list` 所指向的缓冲区中。缓冲区的大小由 `size` 指定  
+
+想获取与某文件相关联的扩展属性名列表，只需对文件拥有读权限  
+
+出于安全考虑， `list` 中返回的扩展属性名称可能不包含调用进程无权访问的属性名  
+
+如果设置 `size`  为 0，会忽略 `list`，可以将 `size` 设置为 `XATTR_SIZE`  
+
+
+
+
+
