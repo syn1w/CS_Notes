@@ -3257,7 +3257,186 @@ ssize_t flistxattr(int fd, char *list, size_t size);
 
 
 
+# 十八、目录和链接
+
+## 1. 目录和硬链接
+
+在文件系统中，目录的存储方式类似于普通文件，区别是：
+
+- 在其 i-node 条目中，会将目录标记为一种不同的文件类型  
+- 目录是经特殊组织而成的文件。本质上说就是一个表格，包含文件名和 i-node 编号  
+
+i-node 表的编号始于 1，而非 0，因为若目录条目的 i-node 字段值为 0，则表明该条目尚未使用  
+
+i-node 1 用来记录文件系统的坏块。文件系统根目录(/)总是存储在 i-node 条目 2 中  
+
+![inode_and_filestructure](../../imgs/linux/TLPI/18_1.png) 
+
+i 节点的信息中，并未包含文件名，仅通过列表中的映射来定义文件名称，能够在相同或不同目录中，创建多个名称的文件，每个文件都有相同的 i-node，也将这些名字称为硬链接  
+
+```sh
+echo -n "It is good to collect things, " > abc
+ls -li abc
+# 10696049115034450 -rw-r--r-- 1 user group 29 Sep  7 22:33 abc
+ln abc xyz
+echo " but is it better to go on walks." >> xyz
+cat abc
+# It is good to collect things, but is it better to go on walks.
+ls -li abc xyz
+# 10696049115034450 -rw-r--r-- 2 user group 63 Sep  7 22:34 abc
+# 10696049115034450 -rw-r--r-- 2 user group 63 Sep  7 22:34 xyz
+rm abc
+ls -li xyz
+# 10696049115034450 -rw-r--r-- 1 user group 63 Sep  7 22:34 xyz
+```
+
+仅当 i-node 的链接计数降为 0 时，也就是移除了文件的所有名字时，才会删除文件的 i-node 记录和数据块  
+
+硬链接的限制，均可用符号链接来加以规避：
+
+- 因为目录条目（硬链接）对文件的指代采用了 i-node 编号，而 i-node 编号的唯一性仅在一个文件系统之内才能得到保障，所以硬链接必须与其指代的文件驻留在同一文件系统中  
+- 不能为目录创建硬链接，从而避免出现令诸多系统程序陷于混乱的链接环路  
 
 
 
+## 2. 符号链接
+
+符号链接，有时也称为软链接，是一种特殊的文件类型，其数据是另一文件的名称  
+
+SUSv3 规定，针对路径名中的每个符号链接部件，系统实现应允许对其实施至少 `_POSIX_SYMLOOP_MAX ` 次解引用操作。 `_POSIX_SYMLOOP_MAX` 的规定值为 8。  
+
+会对符号链接进行解引用的系统调用有  `access acct bind chdir chmod chown chroot creat exec getxattr listxattr opendir pivot_root quotactl removeexattr setxattr stat statfs statvfs swapon swapoff truncate uselib utime utimes`  
+
+不会解引用的有：`lchown lgetxattr link llistxattr lremoveexattr lsetxattr lstat lutimes readlink rename rmdir unlink`  
+
+`open` 除非指定了 `O_NOFOLLOW` 或 `O_EXCL | O_CREAT` 不会解引用  
+
+
+
+## 3. link/unlink
+
+```c
+#include <unistd.h>
+
+int link(const char *oldpath, const char *newpath);
+// return 0 on success or -1 on error
+```
+
+如果 `newpath` 已存在，不会覆盖，将产生 `EEXIST`  
+
+如果 `oldpath` 是符号链接，在 Linux 中，将创建一个新的符号链接，指向 `oldpath` 指向的文件，不同的 Unix 系统，对于符号链接的处理可能有差异  
+
+
+
+```c
+#include <unistd.h>
+
+int unlink(const char *pathname);
+// return 0 on success or -1 on error
+```
+
+`unlink()` 系统调用移除一个链接（删除一个文件名），且如果此链接是指向文件的最后一个链接，那么还将移除文件本身。若 `pathname` 中指定的链接不存在，则 `unlink()` 调用失败，并将 `errno` 置为 `ENOENT`。  
+
+`unlink()` 不能移除一个目录，完成这一任务需要使用 `rmdir()` 或 `remove()`  
+
+`unlink()` 系统调用不会对符号链接进行解引用操作，若 `pathname` 为符号链接，则移除链接本身，而非链接指向的名称  
+
+仅当关闭所有文件描述符时，方可删除一个已打开的文件，内核除了为每个 i-node 维护链接计数之外，还对文件的打开文件描述计数。  
+
+
+
+## 4. rename
+
+`rename` 既可以重命名文件，又可以将文件移至同一文件系统中的另一目录  
+
+```c
+#include <stdio.h>
+
+int rename(const char *oldpath, const char *newpath);
+// return 0 on success or -1 on error
+```
+
+`rename()`  调用仅操作目录条目，而不移动文件数据。改名既不影响指向该文件的其他硬链接，也不影响持有该文件打开描述符的任何进程，因为这些文件描述符指向的是打开文件描述，与文件名并无瓜葛  
+
+`rename()` 调用有以下规则：
+
+- 如果 `newpath` 已经存在，则将它覆盖
+- 如果 `newpath` 和 `oldpath` 指向同一文件，则不发生变化且调用成功  
+- 对其两个参数中的符号链接均不进行解引用，如果 `oldpath` 是符号链接，将重命名该符号链接，如果 `newpath` 是符号链接，将其视为由 `oldpath` 重命名为 `newpath`(覆盖 `newpath` 符号链接)  
+- 如果 `oldpath` 指代文件，则不能将 `newpath` 指定为目录  
+- 如果 `oldpath` 指代目录，必须保证 `newpaht` 要么不存在，要么是一个空目录名，而且 `newpath` 不能包含 `oldpath` 作为前缀
+- `oldpath` 和 `newpath` 所指代的文件必须位于同一文件系统  
+
+
+
+## 5. symlink/readlink
+
+```c
+#include <unistd.h>
+
+int symlink(const char *filepath, const char *linkpath);
+// return 0 on success or -1 on error
+```
+
+`symlink()` 系统调用会针对由 `filepath` 所指定的路径名创建一个新的符号链接—`linkpath`。（移除符号链接，需使用 `unlink()` 调用。 ）  
+
+若 `linkpath` 中给定的路径名已然存在，则调用失败  
+
+由 `filepath` 所命名的文件或目录在调用时无需存在。即便当时存在，也无法阻止后来将其删除。这时， `linkpath` 成为“悬空链接”，其他系统调用试图对其进行解引用操作都将出错  
+
+
+
+`readlink` 会获取符号链接指向的文件名置于 `buffer` 中，比如 `linkfile -> xxx`，对 `linkfile` 进行 `readlink` 调用，将会把 `xxx` 返回到 `buffer` 中  
+
+```c
+#include <unistd.h>
+
+ssize_t readlink(const char *pathname, char *buffer, size_t bufsize);
+// return number of bytes placed in buffer on success or -1 on error
+```
+
+可以将 `bufsize` 长度设置为 `PATH_MAX`  
+
+
+
+## 6. mkdir/rmdir
+
+```c
+#include <sys/stat.h>
+#include <sys/types.h>
+
+int mkdir(const char *pathname, mode_t mode);
+// return 0 on success or -1 on error
+```
+
+`pathname` 参数指定了新目录的路径名。该路径名可以是相对路径，也可以是绝对路径。若具有该路径名的文件已经存在，则调用失败并将 `errno` 置为 `EEXIST`  
+
+mode 参数指定了新目录的权限，与 `open` 调用相同，不过会忽略 Set GID(`S_ISGID`)
+
+SUSv3 规定， `mkdir()` 对 Set UID、Set GID 以及 Sticky 位的处理方式由实现定义  
+
+
+
+```c
+#include <unistd.h>
+int rmdir(const char *pathname);
+// return 0 on success or -1 on error
+```
+
+要使 `rmdir()` 调用成功，则要删除的目录必须为空。如果 `pathname` 的最后一部分为符号链接，那么 `rmdir()` 调用将不对其进行解引用操作，并返回错误  
+
+
+
+## 7. remove
+
+`remove()` 库函数移除一个文件或一个空目录  
+
+```c
+#include <stdio.h>
+
+int remove(const char *pathname);
+// return 0 on success or -1 on error
+```
+
+如果 `pathname` 是一文件，那么 `remove()` 去调用 `unlink()`；如果 `pathname` 为一目录，那么 `remove()` 去调用 `rmdir()`。  
 
