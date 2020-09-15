@@ -3440,3 +3440,304 @@ int remove(const char *pathname);
 
 如果 `pathname` 是一文件，那么 `remove()` 去调用 `unlink()`；如果 `pathname` 为一目录，那么 `remove()` 去调用 `rmdir()`。  
 
+
+
+## 8. opendir/readdir
+
+`opendir()` 函数打开一个目录，并返回指向该目录的指针，供后续调用使用  
+
+```c
+#include <dirent.h>
+
+DIR *opendir(const char *dirpath);
+DIR *fopendir(int fd);
+// return DIR stream pointer on success or -1 on error
+```
+
+
+
+`readdir()` 函数从一个目录流中读取连续的条目，每调用 `readdir()` 一次，就会从 `dirp` 所指代的目录流中读取下一目录条目，并返回一个指针，指向经静态分配而得的 `dirent` 类型结构  
+
+```c
+#include <dirent.h>
+
+struct dirent {
+    ino_t          d_ino;       /* Inode number */
+    // Linux only
+    off_t          d_off;       /* Not an offset; see below */
+    unsigned short d_reclen;    /* Length of this record */
+    unsigned char  d_type;      /* Type of file; not supported
+		    					   by all filesystem types */
+    // Linux only
+    char           d_name[256]; /* Null-terminated filename */
+};
+
+struct dirent *readdir(DIR *dirp);
+// return pointer to a statically allocated structure describing
+// next directory entry, or NULL on end-of-directory on error
+```
+
+`readdir()` 返回时并未对文件名进行排序，而是按照文件在目录中出现的天然次序（这取决于文件系统向目录添加文件时所遵循的次序  
+
+如果目录内容恰逢应用调用 `readdir()` 扫描该目录时发生变化，那么应用程序可能无法观察到这些变动。 SUSv3 明确指出，对于 `readdir()` 是否会返回自上次调用 `opendir()` 或 `rewinddir()` 后在目录中增减的文件，规范不做要求  
+
+`rewinddir()` 函数将目录重新流回起点，以便下次调用 `readdir()` 从目录的第一个文件开始  
+
+```c
+#include <sys/types.h>
+#include <dirent.h>
+
+void rewinddir(DIR *dirp);
+```
+
+
+
+关闭目录流  
+
+```c
+#include <sys/types.h>
+#include <dirent.h>
+
+int closedir(DIR *dirp);
+// return 0 on success or -1 on error
+```
+
+
+
+返回目录流的文件描述符  
+
+```c
+#include <sys/types.h>
+#include <dirent.h>
+
+int dirfd(DIR *dirp);
+// return file descriptor on success or -1 on error
+```
+
+
+
+## 9. 文件树遍历 nftw
+
+nftw()函数允许程序对整个目录子树进行递归遍历，并为子树中的每个文件执行某些操作  
+
+```c
+#include <ftw.h>
+
+struct FTW {
+    int base;   // offset of the filename
+    int level;  // depth of fpath in the directory tree, root is 0
+};
+
+int nftw(const char *dirpath,
+         int (*fn) (const char *fpath, const struct stat *sb,
+                    int typeflag, struct FTW *ftwbuf),
+         int nopenfd, int flags);
+
+int ftw(const char *dirpath,
+        int (*fn) (const char *fpath, const struct stat *sb,
+                   int typeflag),
+        int nopenfd);
+// return 0 after successful walk of entire tree or -1 on error
+// or the first nonzero value returned by a call to fn
+```
+
+`nopenfd` 指定可使用文件描述符的最大值 ，如果超过这个值，`nftw` 将做好记录，关闭并重新打开文件描述符  
+
+`fn` 参数：回调函数，其中的参数：
+
+- `fpath`：如果 `dirpath` 是绝对路径，`fpath` 就可能是绝对路径；反之，可能是相对路径
+
+- `typeflag`：标志位
+
+  | `typeflag` |                             说明                             |
+  | :--------: | :----------------------------------------------------------: |
+  |  `FTW_F`   |                     普通文件，除符号链接                     |
+  |  `FTW_D`   |                             目录                             |
+  | `FTW_DNR`  |                        不能读取的目录                        |
+  |  `FTW_DP`  | 正在对一个目录进行后序遍历，当前项是一个目录，其所包含的文件和子目录已经处理完毕 |
+  |  `FTW_NS`  |        对该文件调用 `stat()` 失败，可能是因为权限限制        |
+  |  `FTW_SL`  |                           符号链接                           |
+  | `FTW_SLN`  |                        悬空的符号链接                        |
+
+`flags` 参数  
+
+|    flags    |                             说明                             |
+| :---------: | :----------------------------------------------------------: |
+| `FTW_CHDIR` | 在处理目录内容之前先调用 `chdir()` 进入每个目录。如果打算让 func 在 pathname 参数所指定文件的驻留目录下展开某些工作，那么就应当使用这一标志 |
+| `FTW_DEPTH` |            深度优先原则后序遍历，默认为先序遍历。            |
+| `FTW_MOUNT` |                  不会越界进入另一文件系统。                  |
+| `FTW_PHYS`  | 默认情况下， nftw()对符号链接进行解引用操作。而使用该标志则告知 nftw()函数不要这么做。 |
+
+`nftw()` 的 `FTW_ACTIONRETVAL` 标识  
+
+始于 2.3.3 版本， glibc 允许在 `ntfw()` 的 `flags` 参数中指定一个额外的非标准标志 `FTW_ACTIONRETVAL`。此标志改变了 `nftw()` 函数对 `fn()` 返回值的解释方式  
+
+|      fn 返回值      |                             说明                             |
+| :-----------------: | :----------------------------------------------------------: |
+|   `FTW_CONTINUE`    |   与传统 `fn()` 函数返回 0 时一样，继续处理目录树中的条目    |
+| `FTW_SKIP_SIBLINGS` |      不再进一步处理当前目录中的条目，恢复对父目录的处理      |
+| `FTW_SKIP_SUBTREE`  | 如果 `pathname` 是目录（即 `typeflag` 为 `FTW_D`），那么就不对该目录下的条目调用 `fn()` |
+|     `FTW_STOP`      | 与传统 `fn()` 函数返回非 0 值时一样，不再进一步处理目录树下的任何条目 |
+
+
+
+## 10. 当前工作目录
+
+一个进程的当前工作目录（ current working directory）定义了该进程解析相对路径名的起点  
+
+**获取当前的工作目录**  
+
+```c
+#include <unistd.h>
+
+char *getcwd(char *cwdbuf, size_t size);
+// return cwdbuf on success or NULL on error
+```
+
+`getcwd()` 函数将内含当前工作目录绝对路径的字符串（包括结尾空字符）置于 `cwdbuf` 指向已分配缓冲区中。调用者必须为 `cwdbuf` 缓冲区分配至少 `sizeg` 个字节的空间。 （通常，`cwdbuf` 的大小与 `PATH_MAX` 常量相当。  
+
+Linux 也可以读取 `/proc/PID/cwd` 来确定进程的当前工作目录  
+
+
+
+**改变当前的工作目录**  
+
+```c
+#include <unistd.h>
+
+int chdir(const char *pathname);
+int fchdir(int fd);
+// return 0 on success or -1 on error
+```
+
+如 `pathname` 属于符号链接，还会对其解除引用  
+
+
+
+## 11. 目录 fd 的相关操作
+
+始于版本 2.6.16， Linux 内核提供了一系列新的系统调用，在执行与传统系统调用相似任务的同时，还提供了一些附加功能  
+
+它们对进程当前工作目录的传统语义做了改动  
+
+|     新接口     |   传统接口   |                        说明                        |
+| :------------: | :----------: | :------------------------------------------------: |
+| `faccessat()`  |  `access()`  |  支持 `AT_EACCESS` 和 `AT_SYMLINK_NOFOLLOW` 标志   |
+|  `fchmodat()`  |  `chmod()`   |                                                    |
+|  `fchownat()`  |  `chown()`   |          支持 `AT_SYMLINK_NOFOLLOW` 标志           |
+|  `fstatat()`   |   `stat()`   |          支持 `AT_SYMLINK_NOFOLLOW` 标志           |
+|   `linkat()`   |   `link()`   | 支持（始于 Linux 2.6.18） `AT_SYMLINK_FOLLOW` 标志 |
+|  `mkdirat()`   |  `mkdir()`   |                                                    |
+|  `mkfifoat()`  |  `mkfifo()`  |             基于 `mknodat()` 的库函数              |
+|  `mknodat()`   |  `mknod()`   |                                                    |
+|   `openat()`   |   `open()`   |                                                    |
+| `readlinkat()` | `readlink()` |                                                    |
+|  `renameat()`  |  `rename()`  |                                                    |
+| `symlinkat()`  | `symlink()`  |                                                    |
+|  `unlinkat()`  |  `unlink()`  |              支持 `AT_REMOVEDIR` 标志              |
+| `utimensat()`  |  `utimes()`  |          支持 `AT_SYMLINK_NOFOLLOW` 标志           |
+
+以 openat()为例  
+
+```c
+#include <fcntl.h>
+
+int openat(int dirfd, const char *pathname, int flags, ... /*mode_t mode*/);
+// return fd on success or -1 on error
+```
+
+对于 `open` 来说，只是添加了一个 dirfd 参数：
+
+- 如果 `pathname` 中为一相对路径名，那么对其解释则以打开文件描述符 `dirfd` 所指向的目录为参照点，而非进程的当前工作目录  
+- 如果 `pathname` 中为一相对路径，且 `dirfd` 是特殊值 `AT_FDCWD`，那么对 `pathname` 的解释则相对与进程当前工作目录(和 `open` 相同)而言  
+- 如果 `pathname` 中为绝对路径，那么将忽略 `dirfd` 参数  
+
+上表部分接口支持上面列出的 `flags` 参数
+
+
+
+支持上述的系统调用还有其他原因：
+
+- 当调用 `open` 打开位于当前工作目录以外的文件时，可能会发生某些竞争条件，使用 `openat` 可以避免这个问题
+- 工作目录时进程的属性之一，为进程的所有进程所共享，而对某些程序来说，需要对不同的线程拥有不同的虚拟工作目录，将 `openat` 与应用所维护的目录文件描述符相结合，就可以模拟这一功能
+
+
+
+## 12. chroot
+
+每个进程都有一个根目录，该目录是解释绝对路径（即那些以/开始的目录）时的起点  
+
+```c
+#include <unistd.h>
+
+int chroot(const char *pathname);
+// return 0 on success or -1 on error
+```
+
+`chroot()` 系统调用将进程的根目录改为由 `pathname` 指定的目录（如果 `pathname` 是符号链接，还会解引用）  
+
+鉴于这会将应用程序限定于文件系统的特定区域，有时也将此称为设立了一个 `chroot` 监禁区  
+
+根目录 `/` 的父目录 `..` 其实是 `/` 的一个链接  
+
+
+
+通常情况下，不是随便什么程序都可以在 `chroot` 监禁区中运行的，因为大多数程序与共享库之间采取的是动态链接的方式。因此，要么只能局限于运行静态链接程序，要么就在监禁区中复制一套标准的共享库系统目录（或使用绑定挂载特性）  
+
+`chroot()` 系统调用从未被视为一个完全安全的监禁机制。首先，特权级程序可以在随后对 `chroot()` 的进一步调用中利用种种手段而越狱成功。例如，特权级进程可以使用 `mknod` 创建一个内存设备文件，类似于 `/dev/mem`，并通过该设备来访问 RAM 的内容，也就一切皆有可能了
+
+
+
+即便是对于无特权程序，也必须小心防范如下几条可能的越狱路线 ：
+
+- 调用 chroot()并未改变进程的当前工作目录，在 `chroot` 之后需要调用 `chdir("/")`
+
+- 如果进程针对监禁区之外的某一目录持有一打开文件描述符，那么结合 `fchdir()` 和 `chroot()` 即可越狱成功  
+
+  ```c
+  int fd = open("/", O_RDONLY);
+  chroot("/home/mtk"); // jailed
+  fchdir(fd);
+  chroot(".");  // out of jail
+  ```
+
+
+
+## 13. 解析路径名
+
+`realpath` 库函数对 `pathname` 的符号链接进行解引用，并返回相应的绝对路径  
+
+```c
+#include <stdlib.h>
+
+char *realpath(const char *pathname, char *resolved_path);
+// return pointer to resolved pathname on success or NULL on error
+```
+
+glibc 的 `realpath()` 实现允许调用者将 `resolved_path` 参数指定为空。这时， `realpath()` 会为经解析生成的路径名分配一个多达 `PATH_MAX` 个字节的缓冲区， 并将指向该缓冲区的指针作为结果返回。（调用者必须自行调用 `free()`来释放该缓冲区。）  
+
+
+
+## 14. 解析路径名字符串
+
+`dirname()` 和 `basename()` 函数将一个路径名字符串分解成目录和文件名两部分  
+
+```c
+#include <libgen.h>
+
+char *dirname(char *pathname);
+char *basename(char *pathname);
+// return a pointer to a null-terminaled(possibly statically allocated) string
+```
+
+比如 `/home/britta/prog.c`，`dirname` 返回 `/home/britta`，`basename`  返回 `prog.c`  
+
+需要注意以下几点：
+
+- 将忽略 `pathname` 中尾部的斜线字符  
+- 如果 `pathname` 中未包含斜线字符，那么 `dirname()` 将返回字符串 `.`，而 `basename()` 将返回 `pathname`  
+- 如果 `pathname` 仅由一个 `/` 组成，那么 `dirname()` 和 `basename()` 均将返回字符串 `/`
+- 如果 `pathname` 为空指针或者空字符串，那么 `dirname()` 和 `basename()` 均将返回字符串 `.`  
+
+
+
