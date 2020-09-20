@@ -3741,3 +3741,162 @@ char *basename(char *pathname);
 
 
 
+# 十九、监控文件事件
+
+某些应用程序需要对文件或目录进行监控，已侦测其是否发生了特定事件  
+
+自内核 2.6.13 起， Linux 开始提供 inotify 机制，以允许应用程序监控文件事件  
+
+inotify  是 Linux 专有机制，少数系统提供类似的，比如 BSD 的 kqueue  
+
+
+
+## 1. 概述
+
+使用 inotify API 需要以下几个关键步骤：
+
+- 应用程序使用 `inotify_init` 创建一个 inotify 实例  
+- 应用程序使用 `inotify_add_watch` 向 inotify 实例添加条目(也可以使用 `inotify_rm_watch` 来移除不需要的监控项)
+- 为获得事件通知，应用程序需要针对 inotify 文件描述符执行 `read` 操作，每次 `read` 成功，都会返回一个或多个 `inotify_event` 结构，其中各自记录了处于 inotify 实例监控之下的某一路径名所发生的事件  
+- 应用程序在结束监控时会关闭 inotify 文件描述符。这会自动清除与 inotify 实例相关的所有监控项  
+
+
+
+inotify 机制可用于监控文件或目录。当监控目录时，与路径自身及其所含文件相关的事件都会通知给应用程序  
+
+inotify 监控机制为非递归。若应用程序有意监控整个目录子树内的事件，则需对该树中的每个目录发起 `inotify_add_watch()` 调用  
+
+可使用 `select()`、 `poll()`、 `epoll()` 以及由信号驱动的 I/O（自 Linux 2.6.25 起）来监控 inotify 文件描述符  
+
+
+
+## 2. inotify API
+
+`inotify_init`  
+
+```c
+#include <sys/inotify.h>
+
+int inotify_init(void);
+
+// flags: IN_NONBLOCK | IN_CLOEXEC
+int inotify_init1(int flags);
+
+// return inotify fd on success or -1 on error
+```
+
+
+
+`inotify_add_watch`  既可以追加新的监控项，也可以修改现有监控项   
+
+```c
+#include <sys/inotify.h>
+
+int inotify_add_watch(int fd, const char *pathname, uint32_t mask);
+// return watch fd on success or -1 on error
+
+
+//         an inotify instance
+//                 +--+              +--------+------+
+//             fd1 |  |  ----------> |  path  | mask |
+//                 +--+              +--------+------+
+//             fd2 |  |  ----------> |  path  | mask |
+//                 +--+              +--------+------+
+//             fd3 |  |  ----------> |  path  | mask |
+//                 +--+              +--------+------+
+// 
+```
+
+`fd` 参数是执行 inotify 实例的文件描述符  
+
+`pathname` 是想要创建或修改的监控项所对应的文件（调用程序必须对该文件具有读权限  ）  
+
+参数 `mask` 为一位掩码，针对 `pathname` 定义了意欲监控的事件，下一节详细说明  
+
+
+
+`inotify_rm_watch`  
+
+```c
+#include <sys/inotify.h>
+
+int inotify_rm_watch(int fd, uint32_t wd);
+// return 0 on success or -1 on error
+```
+
+`fd` 指代 inotify 实例  
+
+`wd` 是之前 `inotify_add_watch()` 调用的返回  
+
+删除监控项会为该监控描述符生成 `IN_IGNORED` 事件  
+
+
+
+
+
+## 3. inotify 事件
+
+|         位         |  In  | Out  |             描述              |
+| :----------------: | :--: | :--: | :---------------------------: |
+|    `IN_ACCESS`     |  ●   |  ●   |       文件被访问(read)        |
+|    `IN_ATTRIB`     |  ●   |  ●   |        文件元数据改变         |
+|  `IN_CLOSE_WRITE`  |  ●   |  ●   |   关闭为了写入而打开的文件    |
+| `IN_CLOSE_NOWRITE` |  ●   |  ●   |   关闭以只读方式打开的文件    |
+|    `IN_CREATE`     |  ●   |  ●   | 在受监控目录内创建了文件/目录 |
+|    `IN_DELETE`     |  ●   |  ●   |  在受监控目录内删除文件/目录  |
+|  `IN_DELETE_SELF`  |  ●   |  ●   |    删除受监控目录/文件本身    |
+|    `IN_MODIFY`     |  ●   |  ●   |          文件被修改           |
+|   `IN_MOVE_SELF`   |  ●   |  ●   |    移动受监控目录/文件本身    |
+|  `IN_MOVED_FROM`   |  ●   |  ●   |   文件移出到受监控目录之外    |
+|   `IN_MOVED_TO`    |  ●   |  ●   |     将文件移入受监控目录      |
+|     `IN_OPEN`      |  ●   |  ●   |          文件被打开           |
+|   `IN_ALL_EVENTS`   |  ●   |      |    以上所有输出事件的统称     |
+|      `IN_MOVE`      |  ●   |      | `IN_MOVED_FROM | IN_MOVED_TO` |
+|      `IN_CLOSE`      |  ●   |      | `IN_CLOSE_WRITE | IN_CLOSE_NOWRITE` |
+| `IN_DONT_FOLLOW` | ● |  | 不对符号链接解引用（始于 Linux 2.6.15） |
+| `IN_MASK_ADD` | ● |  | 将事件追加到 pathname 的当前监控掩码 |
+| `IN_ONESHOT` | ● |  | 只监控 pathname 的一个事件 |
+| `IN_ONLYDIR` | ● |  | pathname 不为目录时会失败（始于 Linux 2.6.15） |
+| `IN_IGNORED` |  | ● | 监控项为内核或应用程序所移除 |
+| `IN_ISDIR` |      |  ●   | name 中所返回的文件名为路径 |
+| `IN_Q_OVERFLOW` |      |  ●   | 事件队列溢出 |
+| `IN_UNMOUNT` |      |  ●   | 包含对象的文件系统遭卸载 |
+
+
+
+## 4. 读取 inotify 事件
+
+```c
+struct inotify_event {
+  	int wd;           // Watch descriptor on which event occurred
+    uint32_t mask;    // Mask describing event
+    uint32_t cookie;  // Unique cookie associating related
+                      // events (for rename(2))
+    uint32_t len;     // Size of name field
+    char name[];      // Optional null-terminated name
+};
+```
+
+移除监控项时，会产生 `IN_IGNORED` 事件，以 `IN_ONESHOT` 而建立的监控项因事件触发而遭自动移除时，不会产生 `IN_IGNORED` 事件  
+
+如果事件的主体为路径，那么除去其他位以外，在 `mask` 中还会设置 `IN_ISDIR` 位  
+
+`IN_UNMOUNT` 事件会通知应用程序包含受监控对象的文件系统已遭卸载。该事件发生之后，还会产生包含 `IN_IGNORED` 置位的附加事件  
+
+使用 `cookie` 字段可将相关事件联系在一起。目前，只有在对文件重命名时才会用到该字段。当这种情况发生时，系统会针对待重命名文件所在目录产生 `IN_MOVED_FROM` 事件，然后，还会针对重命名后文件的所在目录生成 `IN_MOVED_TO` 事件。 （若仅是在同一目录内为文件改名，系统则会针对同一目录产生上述两个事件。 ）两个事件的 cookie 字段值相等，故而应用程序得以将它们关联起来。  
+
+当受监控目录中有文件发生事件时，`name` 字段返回一个以空字符结尾的字符串，以标识该文件。若受监控对象自身有事件发生，则不使用 `name` 字段，将 `len` 字段置 0  
+
+单个 inotify 事件的长度是 `sizeof(struct inotify_event) + len`  
+
+传给 `read()` 的缓冲区应至少为 `sizeof(struct inotify_event) + NAME_MAX + 1` 字节，其中 `NAME_MAX` 是文件名的最大长度，此外在加上终止空字符使用的 1 个字节。  
+
+
+
+## 5. 队列限制
+
+对 inotify 事件做排队处理，需要消耗内核内存。正因如此，内核会对 inotify 机制的操作施以各种限制。超级用户可配置 `/proc/sys/fs/inotify` 路径中的 3 个文件来调整这些限制  
+
+- `max_queued_events`：调用 inotify_init() 时，使用该值来为新 inotify 实例队列中的事件数量设置上限。一旦超出这一上限，系统将生成 `IN_Q_OVERFLOW` 事件，并丢弃多余的事件。溢出事件的 `wd` 字段值为-1。  
+- `max_user_instances`：对由每个真实用户 ID 创建的 inotify 实例数的限制值。
+- `max_user_watches`：对由每个真实用户 ID 创建的监控项数量的限制值  
