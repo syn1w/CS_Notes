@@ -3951,20 +3951,321 @@ struct inotify_event {
 
 ## 2. 信号类型
 
-Linux 信号，有些 SUSv3 没有规定，而且在不同架构下，信号值不同，下表为 x64 架构  
+Linux 信号类型，有些 SUSv3 没有规定，而且在不同架构下，信号值不同，下表为 x64 架构  
 
 默认操作 term 表示终止，core 表示核心转储，ignore 表示忽略，stop 表示暂停，cont 表示恢复已暂停进程  
 
-|   名称    | 信号值 |        描述        | 默认操作 |
-| :-------: | :----: | :----------------: | :------: |
-| `SIGABRT` |   6    |      中止进程      |   core   |
-| `SIGALRM` |   14   |     定时器到期     |   term   |
-| `SIGBUS`  |   7    |    内存访问错误    |   core   |
-| `SIGCHLD` |   17   | 终止或者停止子进程 |  ignore  |
-| `SIGCONT` |   18   |   如果暂停则继续   |   cont   |
-| `SIGEMT`  | undef  |      硬件错误      |   term   |
-| `SIGFPE`  |   8    |      算术异常      |   core   |
-| `SIGHUB`  |   1    |        挂起        |   term   |
-| `SIGILL`  |   4    |      非法指令      |   core   |
-| `SIGINT`  |   2    |        中断        |   term   |
+|    名称     | 信号值 |         描述          | 默认操作 |
+| :---------: | :----: | :-------------------: | :------: |
+|  `SIGABRT`  |   6    |       中止进程        |   core   |
+|  `SIGALRM`  |   14   |      定时器到期       |   term   |
+|  `SIGBUS`   |   7    |     内存访问错误      |   core   |
+|  `SIGCHLD`  |   17   |  终止或者停止子进程   |  ignore  |
+|  `SIGCONT`  |   18   |    如果暂停则继续     |   cont   |
+|  `SIGEMT`   | undef  |       硬件错误        |   term   |
+|  `SIGFPE`   |   8    |       算术异常        |   core   |
+|  `SIGHUB`   |   1    |         挂起          |   term   |
+|  `SIGILL`   |   4    |       非法指令        |   core   |
+|  `SIGINT`   |   2    |         中断          |   term   |
+|   `SIGIO`   |   29   |    I/O 时可能产生     |   term   |
+|  `SIGPOLL`  |        |                       |          |
+|  `SIGKILL`  |   9    |       确保杀死        |   term   |
+|  `SIGPIPE`  |   13   |       管道断开        |   term   |
+|  `SIGPROF`  |   27   |  性能分析定时器过期   |   term   |
+|  `SIGPWR`   |   30   |     电量将要耗尽      |   term   |
+|  `SIGQUIT`  |   3    |       终端退出        |   core   |
+|  `SIGSEGV`  |   11   |    无效的内存引用     |   core   |
+| `SIGSTKFLT` |   16   |     协处理器错误      |   term   |
+|  `SIGSTOP`  |   19   |       确保暂停        |   stop   |
+|  `SIGSYS`   |   31   |    无效的系统调用     |   term   |
+|  `SIGTERM`  |   15   |       终止进程        |   term   |
+|  `SIGTRAP`  |   5    |     跟踪/断点陷阱     |   core   |
+|  `SIGTSTP`  |   20   |       终端暂停        |   stop   |
+|  `SIGTTIN`  |   21   |  后台进程从终端读取   |   stop   |
+|  `SIGTTOU`  |   22   |   后台进程向终端写    |   stop   |
+|  `SIGURG`   |   23   |  套接字上的紧急数据   |  ignore  |
+|  `SIGUSR1`  |   10   |   用户自定义信号 1    |   term   |
+|  `SIGUSR2`  |   12   |   用户自定义信号 2    |   term   |
+| `SIGVTALRM` |   26   |    虚拟定时器过期     |   term   |
+| `SIGWINCH`  |   28   | 终端窗口尺寸发生变化  |  ignore  |
+|  `SIGXCPU`  |   24   | 突破对 CPU 时间的限制 |   core   |
+|  `SIGXFSZ`  |   25   | 突破对文件大小的限制  |   core   |
+
+关于 `INT, QUIT, KILL, TERM, STOP, HUB` 的区别见[这里](https://github.com/syn1w/CS_Notes/blob/master/notes/os/linux_begin.md#3-%E7%AE%A1%E7%90%86%E8%BF%9B%E7%A8%8B)
+
+
+
+- 在其他 UNIX 实现中，对 SIGPWR 信号的默认行为通常是将其忽略  
+- 几个 UNIX 实现（特别是 BSD 衍生系统）默认情况下将忽略 SIGIO 信号  
+
+
+
+## 3. signal
+
+改变信号处理方法  
+
+UNIX 系统提供了两种方法来改变信号处置：`signal()` 和 `sigaction()`。  
+
+`signal()` 的行为在不同 UNIX 实现间存在差异，这也意味着对可移植性有所追求的程序不能使用此调用来建立信号处理器函数  
+
+`signal()` 虽然在 Linux 手册的第二部分，但是却被实现为基于 `sigaction()` 系统调用的 glibc 库函数
+
+
+
+```c
+#include <signal.h>
+
+typedef void (*sighandler_t)(int);
+sighandler_t signal(int signum, sighandler_t handler);
+
+// returns the previous value of the signal handler
+// or SIG_ERR on error.
+```
+
+可以使用如下值来代替函数地址：
+
+- `SIG_DFL` 将信号处理函数重置为默认值
+- `SIG_IGN` 忽略该信号  
+
+
+
+## 4. 信号处理流程
+
+![signal handle](../../imgs/linux/TLPI/20_1.png)
+
+
+
+## 5. 发送信号 `kill`
+
+```c
+#include <signal.h>
+
+int kill(pid_t pid, int sig);
+// return 0 on success or -1 on error
+```
+
+`pid` 参数标识一个或多个进程，`sig` 指定了要发送的信号  
+
+关于 `pid`：
+
+- 如果 `pid` 大于 0，发送信号到 `pid` 指定的进程
+- 如果 `pid` 等于 0，发送信号给与调用进程同组的每个进程
+- 如果 `pid` 小于 -1，那么会向 GID 等于该 `pid` 绝对值的进程组内所有下属进程发送信号，在 shell 作业控制中有特殊用途
+- 如果 `pid` 等于 -1，那么信号的发送范围是： 调用进程有权将信号发往的每个目标进程，除去 init（进程 ID 为 1）和调用进程自身，也被称为广播信号
+
+
+
+发送信号权限的规则：
+
+- 特权级进程可以向任何进程发送信号
+- init 进程是一个特例，仅接收已安装处理函数的信号，可以防止意外杀死 init 进程
+- 如果发送者的 RUID 或 EUID 匹配于接收者的 RUID 或 Saved Set UID，那么非特权进程也可以向另一进程发送信号
+- `SIGCONT` 信号需要特殊处理。无论对用户 ID 的检查结果如何，非特权进程可以向同一会话中的任何其他进程发送这一信号。利用这一规则，运行作业控制的 shell 可以重启已停止的作业（进程组），即使作业进程已经修改了它们的用户 ID  
+
+
+
+## 6. 检查进程的存在
+
+使用 `kill` 对某个 `pid` 发送信号，如果调用失败且 `errno` 为 `ESRCH` 表示目标进程不存在  
+
+但是不能保证是特定的进程仍在运行，因为 `pid` 是循环使用的，也不能保证指定 `pid` 的进程仍在运行，比如僵尸进程  
+
+
+
+其他检查进程存在的方法：
+
+- `wait` 系统调用，只能监控调用者的子程序
+- 信号量和独占文件锁
+- pipe/FIFO 等 IPC 方法
+- `/proc/PID` 目录（循环使用 `pid`，可能不是特定进程）
+
+
+
+## 7. 发送信号 `raise/killpg`
+
+```c
+#include <signal.h>
+
+int raise(int sig);
+// return 0 on success or nonzero on error
+```
+
+在单线程程序中调用 `raise(sig)` 相当于 `kill(getpid(), sig)`  
+
+支持线程的系统讲 `raise(sig)` 实现为：`pthread_kill(pthread_self(), sig)`  
+
+
+
+```c
+#include <signal.h>
+
+int killpg(pid_t pgrp, int sig);
+// return 0 on success or -1 on error
+// <=> kill(-pgrp, sig);
+```
+
+
+
+## 8. 信号描述
+
+可以从 `sys_siglist` 数组中获取，更好使用 `strsignal()` 函数获取  
+
+```c
+#include <signal.h>
+extern const char *const sys_siglist[];
+
+#include <string.h>
+char *strsignal(int sig);
+
+#include <signal.h>
+void psignal(int sig, const char* msg); // print signal. msg: sigxxx
+```
+
+
+
+## 9. 信号集
+
+许多信号相关的系统调用都需要能表示一组不同的信号。例如 `sigaction()` 和 `sigprocmask()` 允许程序指定一组将由进程阻塞的信号，而 `sigpending()` 则返回一组目前正在等待送达给一进程的信号  
+
+多个信号可使用一个称之为信号集的数据结构来表示，其系统数据类型为 `sigset_t`  
+
+`sigemptyset()` 函数初始化一个未包含任何成员的信号集。 `sigfillset()` 函数则初始化一个信号集，使其包含所有信号（包括所有实时信号）  
+
+```c
+#include <signal.h>
+
+typedef struct {
+  unsigned long int __val[_SIGSET_NWORDS];
+} __sigset_t;
+typedef __sigset_t sigset_t;
+
+int sigemptyset(sigset_t *set);
+int sigfillset(sigset *set);
+// return 0 on success or -1 on error
+```
+
+必须使用 `sigemptyset()` 或者 `sigfillset()` 来初始化信号集。这是因为 C 语言不会对自动变量进行初始化，信号集初始化后，使用 `sigaddset` 和 `sigdelset` 函数向一个集合中添加或移除信号  
+
+```c
+#include <signal.h>
+
+int sigaddset(sigset_t *set, int sig);
+int sigdelset(sigset_t *set, int sig);
+// return 0 on success or -1 on error
+
+int sigismember(const sigset_t *set, int sig);
+// return 1 if sig is a member of set otherwise 0
+
+// GNU C
+int sigandset(sigset_t *set, sigset_t *left, sigset_t *right); // set = left & right
+int sigorset(sigset_t *set, sigset_t *left, sigset_t *right);  // set = left | right
+// return 0 on success or -1 on error
+
+// GNU C
+int sigisempty(const sigset_t *set);
+// return 1 if sig set is empty, otherwise 0
+```
+
+
+
+
+
+## 10. 信号掩码
+
+内核会为每个进程维护一个信号掩码，即一组信号，并将阻塞其针对该进程的传递  
+
+如果将遭阻塞的信号发送给某进程，那么对该信号的传递将延后，直至从进程信号掩码中移除该信号，从而解除阻塞为止。（信号掩码实际属于线程属性，在多线程进程中，每个线程都可使用 `pthread_sigmask()` 函数来独立检查和修改其信号掩码。）  
+
+向信号掩码中添加一个信号的方法：
+
+- 当调用信号处理程序时，可将引发调用的信号自动添加到信号掩码中，不过是否发生这种情况，取决于 `sigaction()` 函数在安装信号处理程序时的标志而定  
+- 使用 `sigaction()` 函数建立信号处理程序时，可以指定一组额外信号，当调用该处理程序时会将其阻塞
+- 使用 `sigprocmask()` 系统调用，随时可显式向信号掩码中添加或移除信号
+
+```c
+#include <signal.h>
+
+int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
+// return 0 on success or -1 on error
+```
+
+`how`：
+
+- `SIG_BLOCK`：将 `set` 指向的信号集中的信号添加到信号掩码中
+- `SIG_UNBLOCK`：将 `set` 指向的信号集中的信号从信号掩码中移除
+- `SIG_SETMASK`：将信号掩码设置为 `set`
+
+
+
+## 11. 处于等待的信号
+
+如果某进程接受了一个该进程正在阻塞的信号，那么会将该信号填加到进程的等待信号集中。当之后解除了对该信号的锁定时，会随之将信号传递给此进程。为了确定进程中处于等待状态的是哪些信号，可以使用 `sigpending()`。  
+
+```c
+#include <signal.h>
+
+int sigpending(sigset_t *set);
+// return 0 on success or -1 on error
+```
+
+如果信号处理置为 `SIG_IGN` 或 `SIG_DFL`(默认行为是忽略)，从而阻止传递处于等待状态的信号  
+
+
+
+## 12. 不对等待信号排队
+
+等待信号集只是一个掩码，仅表明一个信号是否发生，而未表明其发生的次数，如果一个信号在阻塞状态下产生多次，但是在稍后仅传递一次  
+
+
+
+## 13. `sigaction`
+
+`sigaction()` 较之 `signal()` 函数可移植性更佳  
+
+```c
+#include <signal.h>
+
+struct sigaction {
+	void       (*sa_handler)(int);
+	void       (*sa_sigaction)(int, siginfo_t *, void *);
+	sigset_t   sa_mask;
+	int        sa_flags;
+	void       (*sa_restorer)(void);
+};
+
+int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact);
+```
+
+`sig` 是想要获取或改变的信号，该参数是除了 `SIGKILL` 和 `SIGSTOP` 之外的任何信号  
+
+`act` 是描述新处理方式的数据 
+
+- `sa_handler` 对应 `signal()` 的 `handler` 参数，如果 `sa_handler` 的取值在 `SIG_IGN` 和 `SIG_DFL` 之外，才对 `sa_mask` 和 `sa_flags` 参数进行处理
+
+- `sa_mask` 字段定义了一组信号，在调用由 `sa_handler` 所定义的处理器程序时将阻塞该组信号，可以利用 `sa_mask` 字段可指定一组信号，不允许它们中断此信号处理程序的执行。引发对信号处理程序调用的信号将自动添加到进程信号掩码中。这意味着，当正在执行处理器程序时，如果同一个信号实例第二次抵达，信号处理器程序将不会递归中断自己。  
+
+- `sa_flags` 是一个位掩码
+
+  - `SA_NOCLDSTOP`：若 `sig` 为 `SIGCHLD` 信号，则当因接受一信号而停止或恢复某一子进程时，将不会产生此信号  
+  - `SA_NOCLDWAIT`：若 `sig` 为 `SIGCHLD` 信号，则当子进程终止时不会将其转化为僵尸  
+  - `SA_NODEFER`：捕获该信号时， 不会在执行信号处理程序时将该信号自动添加到进程掩码中  
+  - `SA_ONSTACK`：针对此信号调用信号处理函数时，使用了由 `sigaltstack()` 安装的备选栈  
+  - `SA_RESETHAND`：当捕获该信号时，会在调用信号处理函数之前将信号处置重置为默认值(`SIG_DFL`)
+  - `SA_RESTART`：自动重启由信号处理程序中断的系统调用  
+  - `SA_SIGINFO`：调用信号处理器程序时携带了额外参数，其中提供了关于信号的深入信息，使用 `sa_sigaction`  来进行信号处理
+
+  
+
+## 14. 等待信号
+
+```c
+#include <unistd.h>
+
+int pause(void);
+// always return -1 with errno set to EINTR
+```
+
+处理信号时，`pause()` 遭到中断，并总是返回 -1，并将 `errno` 置为 `EINTR`  
+
+
 
