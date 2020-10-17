@@ -1086,6 +1086,11 @@ int main(void) {
 
     return 0;
 }
+
+// a(0) called
+// a(1) called
+// a(2) called
+// a(3) called
 ```
 
 
@@ -4269,3 +4274,623 @@ int pause(void);
 
 
 
+# 二十一、信号处理函数
+
+## 1. 设计信号处理函数
+
+一般而言，将信号处理器函数设计得越简单越好。这将降低引发竞争条件的风险。  
+
+两种常见设计：
+
+- 信号处理函数设置全局性标志变量并退出。主程序对此标志进行周期性检查，一旦置位随即采取相应动作。  主程序若因监控一个或多个文件描述符的 I/O 状态而无法进行这种周期性检查时，则可令信号处理器函数向一专用管道写入一个字节的数据，同时将该管道的读取端置于主程序所监控的文件描述符范围之内。  
+- 信号处理器函数执行某种类型的清理动作，接着终止进程或者使用非本地跳转将栈解开并将控制返回到主程序中的预定位置  
+
+
+
+在产生相同的信号时，不进行排队处理，设计处理函数也要考虑处理多次同类信号产生的情况  
+
+
+
+信号处理函数中，并非所有的系统调用和库函数都可以安全调用  
+
+**可重入(reentrant)与非可重入函数**：  
+
+如果同一个进程的多条线程可以同时安全地调用某一函数，那么该函数就是可重入的。此处， “安全”意味着，无论其他线程调用该函数的执行状态如何，函数均可产生预期结果  
+
+更新全局变量或静态数据结构的函数可能是不可重入的。  
+
+
+
+**异步信号安全(async-signal-safe)函数**：  
+
+异步信号安全的函数是指当从信号处理器函数调用时，可以保证其实现是安全的。如果某一函数是可重入的，又或者信号处理函数无法将其中断时，就称该函数是异步信号安全的。  
+
+具体哪些函数是异步信号安全的函数可以见 [man signal-safety](https://man7.org/linux/man-pages/man7/signal-safety.7.html)
+
+
+
+编写信号处理函数有如下两种选择：  
+
+- 确保信号处理器函数代码本身是可重入的，且只调用异步信号安全的函数  
+- 当主程序执行不安全函数或是去操作信号处理器函数也可能更新的全局数据结构时，阻塞信号的传递  
+
+
+
+信号处理函数内部对 `errno` 修改也会导致处理函数不可重入，可以这样处理：
+
+```c
+void handler(int sig) {
+    int savedErrno = errno;
+    
+    // execute some function that might modify errno
+    
+    error = savedErrno;
+}
+```
+
+
+
+尽管存在可重入问题，有时仍需要在主程序和信号处理器函数之间共享全局变量。一种常见的设计是，信号处理器函数只做一件事情，设置全局标志。主程序则会周期性地检查这一标志，并采取相应动作来响应信号传递（同时清除标志）。  
+
+主程序和信号处理函数之间共享变量都应该类似以下声明：
+
+```c
+volatile sig_atomic flag;
+```
+
+
+
+## 2. 终止信号处理函数
+
+信号处理函数中终止的其他办法：
+
+- 使用 `_exit()` 终止进程。`exit()` 是不安全的，因为会刷新 stdio 的缓冲区
+- 使用 `kill()` 发送信号杀死进程  
+- 在信号处理函数中执行非本地跳转
+- 使用 `abort` 终止进程，产生 core dump
+
+
+
+在信号处理器函数中也可以使用这种技术。这也是因硬件异常（例如内存访问错误）而导致信号传递之后的一条恢复途径，允许将信号捕获并把控制返回到程序中某个特定位置。例如，一旦收到 SIGINT 信号（通常由键入 Ctrl-C 产生）， shell 执行一个非本地跳转，将控制返回到主输入循环中（以便读取下一条命令）。  
+
+因为标准的 `longjmp` 从处理函数中退出有一个问题，进入信号处理函数时，内核自动将引发调用的信号以及 `act.sa_mask` 所指定信号添加到信号的信号掩码中，并在正常返回时从掩码中清除。使用 `longjmp` 对不同的 Unix 系统可能不一样。System V 一脉中，`longjmp()` 不会将信号掩码恢复，比如 Linux  
+
+于是产生 `sigsetjmp` 和 `siglongjmp`  
+
+```c
+#include <setjmp.h>
+
+int sigsetjmp(sigjmp_buf env, int savesigs);
+// return 0 on initial call, nonzero on return via siglongjmp
+
+void siglongjmp(sigjmp_buf env, int val);
+```
+
+如果指定 `savesigs` 为非 0，那么会将调用 `sigsetjmp()` 时进程的当前信号掩码保存于 `env` 中，之后通过指定相同 `env` 参数的 `siglongjmp()` 调用进行恢复。如果 `savesigs` 为 0，则不会保存和恢复进程的信号掩码  
+
+`longjmp/siglongjmp` 不在异步信号安全函数的范围之内，规避这一问题需要借助 `sigprocmask()` 临时将信号阻塞起来  
+
+
+
+`abort`  
+
+```c
+#include <stdlib.h>
+
+void abort(void);
+```
+
+函数 `abort()` 通过产生 `SIGABRT` 信号来终止调用进程。对 `SIGABRT` 的默认动作是产生 core dump 文件并终止进程  
+
+无论阻塞或者忽略 `SIGABRT` 信号， `abort()` 调用均不受影响。除非进程捕获 `SIGABRT` 信号后信号处理器函数尚未返回，否则 `abort()` 必须终止进程。也就是使用非本地跳转退出处理函数，将抵消 `abort` 的效果，否则 `abort()` 总是终止进程
+
+
+
+
+
+## 3. 在备选栈中处理信号
+
+在调用信号处理器函数时，内核通常会在进程栈中为其创建一帧。不过，如果进程对栈的扩展突破了对栈大小的限制时，这种做法就不大可行了  
+
+当进程对栈的扩展试图突破其上限时，内核将为该进程产生 SIGSEGV 信号。不过，因为栈空间已然耗尽，内核也就无法为进程已经安装的 SIGSEGV 处理器函数创建栈帧。结果是，处理器函数得不到调用，而进程也就终止了  
+
+如果想要避免这种问题，可以使用以下方法：
+
+- 分配一块备选信号栈的内存区域，作为信号处理函数的栈帧  
+- 调用 `sigaltstack` 告知内核该备选栈的存在
+- 注册信号处理函数时指定 `SA_ONSTACK` 标志
+
+
+
+```c
+#include <signal.h>
+
+typedef struct {
+  	void *ss_sp;             // starting address of alternate stack
+    int   ss_flags;          // SS_ONSTACK || SS_DISABLE
+    size_t ss_size;          // size of alternate stack
+} stack_t;
+
+int sigaltstack(const stack_t sigstack, stack_t *old_sigstack);
+// return 0 on success or -1 on error
+```
+
+备选信号栈通常既可以静态分配，也可以在堆上动态分配。 SUSv3 规定将常量 `SIGSTKSZ` 作为划分备选栈大小的典型值，而将 `MINSSIGSTKSZ` 作为调用信号处理器函数所需的最小值  
+
+`ss_flags`：
+
+- `SS_ONSTACK`：如果该标志已经置位，表明进程正在备选栈上执行，如果再次试图调用 `sigaltstack()` 来创建一个备选栈，将会产生一个错误(`EPERM`)
+- `SS_DISABLE`：在 `old_sigstack` 中返回，表示当前不存在已创建的备选信号栈。如果在 `sigstack` 中指定，则会禁用当前已创建的备选信号栈。  
+
+
+
+## 4. SA_SIGINFO
+
+如果使用 `sigaction()` 注册处理函数时设置了 `SA_SIGINFO` 标志，将会调用 `sa_sigaction` 处理函数(20.13)  
+
+```c
+#include <signal.h>
+
+typedef struct siginfo_t {
+    int      si_signo;     /* Signal number */
+    int      si_errno;     /* An errno value */
+    int      si_code;      /* Signal code */
+    int      si_trapno;    /* Trap number that caused
+                              hardware-generated signal
+                              (unused on most architectures) */
+    pid_t    si_pid;       /* Sending process ID */
+    uid_t    si_uid;       /* Real user ID of sending process */
+    int      si_status;    /* Exit value or signal */
+    clock_t  si_utime;     /* User time consumed */
+    clock_t  si_stime;     /* System time consumed */
+    sigval_t si_value;     /* Signal value */
+    int      si_int;       /* POSIX.1b signal */
+    void    *si_ptr;       /* POSIX.1b signal */
+    int      si_overrun;   /* Timer overrun count;
+                              POSIX.1b timers */
+    int      si_timerid;   /* Timer ID; POSIX.1b timers */
+    void    *si_addr;      /* Memory location which caused fault */
+    long     si_band;      /* Band event (was int in
+                              glibc 2.3.2 and earlier) */
+    int      si_fd;        /* File descriptor */
+    short    si_addr_lsb;  /* Least significant bit of address
+                              (since Linux 2.6.32) */
+    void    *si_lower;     /* Lower bound when address violation
+                              occurred (since Linux 3.19) */
+    void    *si_upper;     /* Upper bound when address violation
+                              occurred (since Linux 3.19) */
+    int      si_pkey;      /* Protection key on PTE that caused
+                              fault (since Linux 4.6) */
+    void    *si_call_addr; /* Address of system call instruction
+                              (since Linux 3.5) */
+    int      si_syscall;   /* Number of attempted system call
+                              (since Linux 3.5) */
+    unsigned int si_arch;  /* Architecture of attempted system call
+                              (since Linux 3.5) */
+} siginfo_t;
+
+void sa_sigaction(int sig, siginfo_t *siginfo, void *ucontext);
+```
+
+`siginfo_t` 结构过于复杂，需要使用再说  
+
+`ucontext` 提供了所谓的用户上下文信息，用于描述调用信号处理器函数前的进程状态，其中包括上一个进程信号掩码以及寄存器的保存值，例如程序计数器（ cp）和栈指针寄存器（ sp）。信号处理器函数很少用到此类信息，所以此处也略而不论  
+
+
+
+## 5. 系统调用的中断和重启
+
+考虑以下场景：
+
+- 为某信号注册处理函数
+- 发起一个阻塞系统调用
+- 之前注册过的信号传递过来，随即引发信号处理函数的调用
+
+默认情况下，系统调用失败，并将 `errno` 置为 `EINTR`  
+
+不过，更为常见的情况是希望遭到中断的系统调用得以继续运行。为此，可在系统调用遭信号处理器中断的事件中，利用如下代码来手动重启系统调用。  
+
+```c
+while ((nread = read(fd, buf, BUF_SIZE)) == -1 && errno == EINTR) {
+    continue;
+}
+
+if (nread == -1) {
+    errExit("read");
+}
+```
+
+
+
+但是这样也比较不太方便，因为只要有意重启阻塞的调用，就需要为每个阻塞的系统调用添加代码  
+
+可以在调用 `sigaction` 指定 `SA_RESTART` 标志来创建信号处理函数，从而令内核自动重启系统调用，还无需处理可能返回的 `EINTR` 错误  
+
+在 Linux 中，如下系统调用是可以重启的：
+
+- 等待子进程：wait()、waitpid()、wait3()、wait4() 和 waitid()  
+- 访问慢速设备时的阻塞 I/O 系统调用： read()、readv()、write()、writev() 和 ioctl()  
+- 系统调用 open()，在可能阻塞的情况下  
+- 用于套接字的各种系统调用： accept()、accept4()、connect()、send()、sendmsg()、sendto()、
+  recv()、recvfrom() 和 recvmsg()。如果使用 setsockopt()来设置超时，这些系统调用就不会自动重启。
+- 对 POSIX 消息队列进行 I/O 操作的系统调用： mq_receive()、mq_timedreceive()、mq_send()和 mq_timedsend()。  
+- 设置文件锁的系统调用和库函数： flock()、fcntl() 和 lockf()  
+- Linux 特有系统调用 futex() 的 FUTEX_WAIT 操作  
+- 用于递减 POSIX 信号量的 sem_wait() 和 sem_timedwait()函数
+- 用于同步 POSIX 线程的函数： pthread_mutex_lock()、pthread_mutex_trylock()、pthread_
+  mutex_timedlock()、pthread_cond_wait() 和 pthread_cond_timedwait()  
+
+
+
+以下阻塞系统调用绝不会自动重启：
+
+- poll()、ppoll()、select() 和 pselect() 这些 I/O 多路复用调用  
+- Linux 特有的 epoll_wait() 和 epoll_pwait()系统调用  
+- Linux 特有的 io_getevents()系统调用  
+- 操作 System V 消息队列和信号量的阻塞系统调用：semop()、semtimedop()、msgrcv() 和 msgsnd()  
+- 对 inotify 文件描述符发起的 read() 调用  
+- 用于将进程挂起指定时间的系统调用和库函数：sleep()、nanosleep() 和clock_nanosleep()  
+- 特意设计用来等待某一信号到达的系统调用：pause()、sigsuspend()、sigtimedwait() 和 sigwaitinfo()  
+
+
+
+为信号修改 `SA_RESTART` 标志：  
+
+```c
+#include <signal.h>
+
+int siginterrupt(int sig, int flag);
+// return 0 on success or -1 on error
+```
+
+若参数 flag 为 1，则针对信号 sig 的处理器函数将会中断阻塞的系统调用的执行。如果 flag 为 0，那么在执行了 sig 的处理器函数之后，会自动重启阻塞的系统调用  
+
+
+
+在 Linux 系统调用中，未处理的暂停信号会产生 `EINTR` 错误  
+
+如果系统调用遭到阻塞，并且进程因为信号 `SIGSTOP/SIGTSTP/SIGTTIN/SIGTTOU` 而停止，之后收到 `SIGCONT` 而恢复就会出现这种情况  
+
+以下系统调用具有这一行为：
+
+- epoll_pwait()，epoll_wait()
+- 对 inotify 文件描述符执行的 read() 调用  
+- semop()、semtimedop()
+- sigtimedwait() 和 sigwaitinfo()  
+
+
+
+# 二十二、信号高级特性
+
+## 1. core dump
+
+```sh
+ulimit -c unlimited
+```
+
+
+
+特定信号会引发进程创建一个 core dump 文件并终止运行。引发程序生成核心转储文件的方式之一是键入退出字符（通常为 `Ctrl + \`)，从而产生 SIGQUIT 信号  
+
+core dump 文件名格式也可以修改，需要使用时查阅资料  
+
+
+
+## 2. 传递的特殊情况
+
+SIGKILL 信号的默认行为是终止一个进程， SIGSTOP 信号的默认行为是停止一个进程，二者的默认行为均无法改变。当试图用 `signal()` 和 `sigaction()` 来改变对这些信号的处理时，将总是返回错误。同样，也不能将这两个信号阻塞  
+
+可使用 SIGCONT 信号来使某些处于暂停的进程得以继续运行，因为暂停信号具有独特目的，某些情况下内核对他们的处理有别于其他信号  
+
+如果一个进程处于暂停状态，那么一个 SIGCONT 信号的到来总是会促使其恢复运行，即使该进程正在阻塞或者忽略 SIGCONT 信号  
+
+如果有任一其他信号发送给了一个已经停暂停的进程，那么在进程收到 SIGCONT 信号而恢复运行之前，信号实际上并未传递。 SIGKILL 信号则属于例外，因为该信号总是会杀死进程，即使进程目前处于停止状态。  
+
+每当进程收到 SIGCONT 信号时，会将处于等待状态的暂停信号丢弃（即进程根本不知道这些信号）。相反，如果任何暂停信号传递给了进程，那么进程将自动丢弃任何处于等待状态的 SIGCONT 信号。之所以采取这些步骤，意在防止之前发送的一个暂停信号会在随后撤销SIGCONT 信号的行为，反之亦然  
+
+由终端产生的信号若已被忽略，则不应改变其信号处理，相关信号有：SIGHUP、SIGINT、SIGQUIT、SIGTTIN、SIGTTOU、SIGTSTP  
+
+
+
+## 3. 可中断和不可中断进程
+
+SIGKILL 和 SIGSTOP 信号对进程的作用是立竿见影的，不过还有一点限制，内核经常需要令进程进入休眠，休眠分为两种（Linux 3 种）：
+
+- interruptible：进程正在等待某一事件。比如终端输入等等，在 `ps` 命令中可中断任务会将 STAT 标记为 S
+- uninterruptible：正在等待某些特定类型事件，无法中断。比如磁盘 I/O 的完成。`ps` 命令中不可中断任务的 STAT 标记为 D
+- killable(Linux 2.6.25~)：类似于不可中断，在收到 SIGKILL 时将其唤醒
+
+
+
+## 4. 硬件产生的信号
+
+硬件异常可以产生 SIGBUS、SIGFPE、SIGILL、SIGSEGV 信号，使用 `kill()` 也可以发送这些信号，但是比较少见，如果进程从此类信号的处理函数中返回、忽略或阻塞此类信号，那么进程的行为未定义  
+
+正确处理此类信号的方法：
+
+- 接受信号的默认行为（终止进程）
+- 编写不会正常返回的处理函数，包括调用 `_exit` 或 `siglongjmp` 来将控制传递回程序中
+
+
+
+## 5. 信号的同步与异步生成
+
+异步信号：引发信号产生（无论信号发送者是内核还是另一进程）的事件，其发生与进程的执行无关。   
+
+同步信号：信号的产生是由进程本身的执行造成的。会立即传递信号（除非该信号遭到阻塞）  
+
+同步信号的例子：执行特定的机器语言指令导致的硬件异常、使用 `raise()`、`kill()`、`killpg()` 向自身发送信号  
+
+
+
+## 6. 信号的传递时机与顺序
+
+何时会传递一个信号？
+
+同步产生的信号会立即传递  
+
+当异步产生一个信号，即使并未将其阻塞，在信号产生和实际传递之间仍可能会存在一个（瞬时）延迟。在此期间，信号处于等待状态。这是因为内核将等待信号传递给进程的时机是，该进程正在执行，且发生由内核态到用户态的下一次切换时。实际上，这意味着在以下时刻才会传递信号：  
+
+- 进程在前度超时后，再度获得调度时（在时间片的开始处）
+- 系统调用完成时（信号传递可能引起正在阻塞的系统调用过早完成）
+
+
+
+解除对多个信号的阻塞时，信号的传递顺序：  
+
+如果进程使用 `sigprocmask()` 解除了对多个等待信号的阻塞，那么所有这些信号会立即传递给该进程  
+
+就目前的 Linux 实现而言， Linux 内核按照信号编号的升序来传递信号  
+
+
+
+## 7. `signal()` 实现及可移植性
+
+`signal()` 早期实现并不靠谱，意味着：刚进入信号处理函数，会将信号处理重置为默认行为。在信号处理函数执行期间，不会对新产生的信号进行阻塞。早期的 UNIX 实现并未提供系统调用的自动重启功能  
+
+```c
+#include <signal.h>
+
+typedef void (*sighandler_t)(int);
+
+sighandler_t
+signal(int sig, sighandler_t handler) {
+    struct sigaction newDisp, prevDisp;
+    newDisp.sa_handler = handler;
+    
+    sigemptyset(&newDisp.sa_mask);
+#ifdef OLD_SIGNAL
+    newDisp.sa_flags = SA_RESETHAND | SA_NODEFER;
+#else
+    newDisp.sa_flags = SA_RESTART;
+#endif
+    
+    if (sigaction(sig, &newDisp, &prevDisp) == -1) {
+        return SIG_ERR;
+    }
+    
+    return prevDisp.sa_handler;
+}
+```
+
+
+
+glibc 库也对 signal 函数的实现历经变化，较新版本默认提供现代语义  
+
+
+
+## 8. 实时信号
+
+实时信号的信号范围有所扩大，可应用于应用程序自定义的目的。而标准信号中可供应用随意使用的信号仅有两个： SIGUSR1 和 SIGUSR2  
+
+对实时信号所采取的是队列化管理。如果将某一实时信号的多个实例发送给一进程，那么将会多次传递信号。  
+
+当发送一个实时信号时，可为信号指定伴随数据（一整型数或者指针值），供接收进程的信号处理器获取。  
+
+不同实时信号的传递顺序得到保障。如果有多个不同的实时信号处于等待状态，那么将率先传递具有最小编号的信号。换言之，信号的编号越小，其优先级越高。如果是同一类型的多个信号在排队，那么信号（以及伴随数据）的传递顺序与信号发送来时的顺序保持一致  
+
+Linux 内核定义了 32 个不同的实时信号，编号范围为 32～63。 `<signal.h>` 头文件所定义的 `RTSIG_MAX` 常 量则表征实时信号的可用数量，而此外所定义的常量 `SIGRTMIN` 和 `SIGRTMAX` 则分别表示可用实时信号编号的最小值和最大值  
+
+指代实时信号编号则可以采用 `SIGRTMIN+x` 的形式  
+
+
+
+实时信号排队的数量限制  
+
+SUSv3 要求不得少于 `_POSIX_SIGQUEUE_MAX(32)`，可以使用 `sysconf(_SC_SIGQUEUE_MAX)` 来获取实时信号排队最大数量  
+
+
+
+**使用实时信号**  
+
+```c
+#include <signal.h>
+
+union sigval {
+  	int   sival_int;
+    void* sival_ptr;
+};
+
+int sigqueue(pid_t pid, int sig, const union sigval value); // send realtime signal
+// return 0 on success or -1 on error
+```
+
+使用 `kill()`、`killpg()` 和 `raise()` 调用也能发送实时信号。不过缺乏移植性，这样有的系统不会对实时信号进行排队，在 Linux 中仍然会对实时信号进行排队  
+
+要为该信号建立了一个处理器函数，接收进程应以 `SA_SIGINFO` 标志发起对 `sigaction()` 的调用。因此，调用信号处理器时就会附带额外参数，其中之一是实时信号的伴随数据。  
+
+
+
+**处理实时信号**  
+
+```c
+// example
+struct sigaction act;
+
+sigemptyset(&act.sa_mask);
+act.sa_sigaction = handler;
+act.sa_flags = SA_RESTART | SA_SIGINFO;
+
+act.si_signo = SIGRTMIN + 5;
+act.si_code = SI_QUEUE;
+
+
+if (sigaction(SIGRTMIN + 5, &act, NULL) == -1) {
+    errExit("sigaction");
+}
+```
+
+
+
+## 9. 掩码来等待信号
+
+在对信号编程时偶尔会遇到如下情况：  
+
+- 临时阻塞一个信号，以防止其信号处理器不会将某些关键代码片段的执行中断  
+- 解除对信号的阻塞，然后暂停执行，直至有信号到达  
+
+假设使用以下代码来实现：
+
+```c
+sigset_t prevMask, intrMask;
+struct sigaction sa;
+
+sigemptyset(&intrMask);
+sigaddset(&intrMask, SIGINT);
+
+sigemptyset(&sa.sa_mask);
+sa.sa_flags = 0;
+sa.sa_handler = handler;
+
+if (sigaction(SIGINT, &sa, NULL) == -1) {
+    errExit("sigaction");
+}
+
+// block SIGINT to executing critical section
+if (sigprocmask(SIG_BLOCK, &intrMask, &prevMask) == -1) {
+    errExit("sigprocmask");
+}
+
+// executing critical section code
+// ...
+
+// end of critical section
+if (sigprocmask(SIG_SETMASK, &prevMask, NULL) == -1) {
+    errExit("sigprocmask");
+}
+
+// BUG: SIGINT arrives now
+
+pause();  // wait for SIGINT
+```
+
+当 `SIGINT` 信号在 BUG 处产生而传递，转而调用 handler 信号处理函数，之后从 handler 正常返回，之后转而调用 `pause()` 等待信号到达，此处产生一个 bug，需要等待第二个 `SIGINT` 信号出现，本意是想要第一个 `SIGINT` 出现就解除阻塞  
+
+此时需要将解除信号阻塞和挂起进程两个动作封装为一个原子操作  
+
+```c
+#include <signal.h>
+
+int sigsuspend(const sigset_t *mask);
+// return -1 with errno set to EINTR
+
+// <==>
+sigprocmask(SIG_SETMASK, &mask, &prevMask); // assign new mask
+pause();
+sigprocmask(SIG_SETMASK, &prevMask, NULL);  // restore old mask
+```
+
+
+
+## 10. 同步方式等待信号
+
+使用 `sigsuspend()` 需要编写信号处理器函数，还需要应对信号异步传递所带来的复杂性。对于某些应用而言，这种方法过于繁复。作为替代方案，可以利用 `sigwaitinfo()` 系统调用来同步接收信号  
+
+```c
+#include <signal.h>
+
+int sigwaitinfo(const sigset_t *set, siginfo_t *info);
+// return number of delivered signal on success or -1 on error
+
+struct timespect {
+  	time_t tv_sec;
+    long   tv_nsec;  // nanoseconds
+};
+
+int sigtimedwait(const sigset_t *set, siginfo_t *info,
+                 const struct timespec *timeout);
+// return number of delivered signal on success or
+// -1 on error or timeout(EAGAIN)
+```
+
+`sigwaitinfo()` 系统调用挂起进程的执行，直至 set 指向信号集中的某一信号抵达。如果调用 `sigwaitinfo()`时， set 中的某一信号已经处于等待状态，那么 `sigwaitinfo()` 将立即返回。传递来的信号就此从进程的等待信号队列中移除，并且将返回信号编号作为函数结果  
+
+`sigwaitinfo()` 所接受信号的传递顺序和排队特性与信号处理器所捕获的信号相同， 就是说，不对标准信号进行排队处理，对实时信号进行排队处理，并且对实时信号的传递遵循低编号优先的原则  
+
+`sigtimedwait()` 系统调用是 `sigwaitinfo()` 调用的变体。唯一的区别是 `sigtimedwait()` 允许指定
+等待时限  
+
+
+
+## 11. 通过文件描述符来获取信号
+
+Linux 提供了（非标准的）`signalfd()` 系统调用；利用该调用可以创建一个特殊文件描述符，发往调用者的信号都可从该描述符中读取。 `signalfd` 机制为同步接受信号提供了 `sigwaitinfo()` 之外的另一种选择  
+
+```CQL
+#include <sys/signalfd.h>
+
+int signalfd(int fd, const sigset_t *mask, int flags);
+// return fd on success or -1 on error
+```
+
+如果指定 `fd` 为 -1，会创建一个新的文件描述符，用于读取 mask 中的信号；否则，将修改与 `fd` 相关的 `mask` 值，且该 fd 一定是由之前对 `signalfd` 的一次调用创建而成  
+
+`mask` 参数是一个信号集，指定了有意通过 signalfd 文件描述符来读取的信号  
+
+`flag`：
+
+- `SFD_CLOEXEC`：为新的文件描述符设置 close-on-exec（FD_CLOEXEC）标志  
+- `SFD_NONBLOCK`：为底层的打开文件描述设置 O_NONBLOCK 标志，以确保不会阻塞未来的读操作  
+
+
+
+创建文件描述符之后，可以使用 `read()` 调用从中读取信号。提供给 `read()` 的缓冲区必须足够大，至少应能够容纳一个 `signalfd_siginfo` 结构  
+
+```c
+struct signalfd_siginfo {
+    uint32_t ssi_signo;    /* Signal number */
+    int32_t  ssi_errno;    /* Error number (unused) */
+    int32_t  ssi_code;     /* Signal code */
+    uint32_t ssi_pid;      /* PID of sender */
+    uint32_t ssi_uid;      /* Real UID of sender */
+    int32_t  ssi_fd;       /* File descriptor (SIGIO) */
+    uint32_t ssi_tid;      /* Kernel timer ID (POSIX timers)
+    uint32_t ssi_band;     /* Band event (SIGIO) */
+    uint32_t ssi_overrun;  /* POSIX timer overrun count */
+    uint32_t ssi_trapno;   /* Trap number that caused signal */
+    int32_t  ssi_status;   /* Exit status or signal (SIGCHLD) */
+    int32_t  ssi_int;      /* Integer sent by sigqueue(3) */
+    uint64_t ssi_ptr;      /* Pointer sent by sigqueue(3) */
+    uint64_t ssi_utime;    /* User CPU time consumed (SIGCHLD) */
+    uint64_t ssi_stime;    /* System CPU time consumed
+                              (SIGCHLD) */
+    uint64_t ssi_addr;     /* Address that generated signal
+                              (for hardware-generated signals) */
+    uint16_t ssi_addr_lsb; /* Least significant bit of address
+                              (SIGBUS; since Linux 2.6.37)
+    uint8_t  pad[X];       /* Pad size to 128 bytes (allow for
+                              additional fields in the future) */
+};
+```
+
+
+
+
+
+## 12. 信号作为 IPC
+
+从某种角度，可将信号视为进程间通信（ IPC）的方式之一。然而，信号作为一种 IPC 机制却也饱受限制。首先，与后续各章描述的其他 IPC 方法相比，对信号编程既繁且难  
+
+而且信号所携带的信息量有限：信号编号以及实时信号情况下一字之长的附加数据（一个整数或者一枚指针值）。与诸如管道之类的其他 IPC 方法相比，过低的带宽使得信号传输极为缓慢。  
+
+由于上述种种限制，很少将信号用于 IPC。  
