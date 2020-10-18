@@ -4894,3 +4894,407 @@ struct signalfd_siginfo {
 而且信号所携带的信息量有限：信号编号以及实时信号情况下一字之长的附加数据（一个整数或者一枚指针值）。与诸如管道之类的其他 IPC 方法相比，过低的带宽使得信号传输极为缓慢。  
 
 由于上述种种限制，很少将信号用于 IPC。  
+
+
+
+
+
+# 二十三、定时器与休眠
+
+## 1. 间隔定时器
+
+系统调用 `setitimer()` 创建一个间隔定时器，在未来的某个时间点到期，并于此后（可选择的）每隔一段时间到期一次  
+
+```c
+#include <sys/time.h>
+
+struct timeval {
+    time_t        tv_sec;
+    suseconds_t   tv_usec;
+};
+
+struct itimerval {
+  	struct timeval it_interval;  // interval for periodic timer
+    struct timeval it_value;     // current value (time until next expiration)
+};
+
+int setitimer(int which, const struct itimerval *new_value,
+              struct itimerval *old_value);
+// return 0 on success or -1 on error
+```
+
+`how`  
+
+- `ITIMER_REAL`：真实时间的倒计时计时器，到期产生 `SIGALARM` 信号并发送给进程  
+- `ITIMER_VIRTUAL`：虚拟世界（用户模式下 CPU 时间）倒计时计时器，到期产生 `SIGVTALRM` 信号
+- `ITIMER_PROF`：profiling 定时器，进程时间（用户态和内核态 CPU 时间总和）倒计时，到期产生 `SIGPROF` 信号
+
+`new_value` 的 `it_value` 是第一次计时器到期的时间，`it_interval` 是第一次到期之后，之后间隔到期时间  
+
+这些信号处理的默认行为都会终止进程  
+
+
+
+获取定时器状态以及下次到期的剩余时间  
+
+```c
+#include <sys/time.h>
+
+int getitimer(int witch, struct itimerval *curr_value);
+// return 0 on success or -1 on error
+```
+
+使用 `setitimer()` 和 `alarm()` 创建的定时器可以跨越 `exec()` 调用得以保存，但由 `fork()` 创建的子进程并不继承该定时器  
+
+进程只能拥有上述 3 种定时器中的一种。当第 2 次调用 `setitimer()` 时，修改已有定时器的属性要符合参数 `which` 中的类型  
+
+
+
+更为简单的接口：`alarm()`  
+
+```c
+#include <unistd.h>
+
+unsigned int alarm(unsigned int seconds);
+// always successeds, returning number of seconds remaining on
+// any previously set timer or 0 if no timer previously was set
+```
+
+参数 seconds 表示定时器到期的秒数。到期时，会向调用进程发送 SIGALRM 信号  
+
+调用 `alarm()` 会覆盖对定时器的前一个设置。调用 `alarm(0)` 可屏蔽现有定时器  
+
+Linux 中，`alarm()` 和 `setitimer()` 针对同一进程共享同一实时定时器，这也意味着，无论调用两者之中的哪个完成了对定时器的前一设置，同样可以调用二者中的任一函数来改变这一设置。其他 UNIX 系统的情况可能会有所不同  
+
+
+
+## 2. 定时器的调度及精度
+
+取决于当前负载和对进程的调度，系统可能会在定时器到期的瞬间（通常是几分之一秒）之后才去调度其所属进程。尽管如此，由 `setitimer()` 或其他接口所创建的周期性定时器，在到期后依然会恪守其规律性，间隔式定时器不受潜在误差左右  
+
+虽然 `setitimer()` 使用的 timeval 结构提供有微秒级精度， 但是传统意义上定时器精度还是受制于软件时钟频率。如果定时器值未能与软件时钟间隔的倍数严格匹配，那么定时器值则会向上取整。也就是说，假如有一个间隔为 19100 微秒（刚刚超过 19 毫秒）的定时器，如果 jiffy（软件时钟周期）为 4 毫秒，那么定时器实际上会每隔 20 毫秒过期一次  
+
+自 Linux 2.6.21 开始，内核支持高分辨率定时器，不再受 jiffy 影响，可以达到底层硬件所支持的精度  
+
+
+
+## 3. 为阻塞设置超时
+
+实时定时器的用途之一是为某个阻塞系统调用设置其处于阻塞状态的时间上限  
+
+例如，当用户在一段时间内没有输入整行命令时，可能希望取消对终端的 `read()` 操作。  处理如下：
+
+- 调用 `sigaction()` 为 SIGALRM 信号创建处理函数，取消 SA_RESTART 确保不会重新启动
+- 调用 `alarm()` 或 `setitimer()` 创建定时器并设置时间上限
+- 执行阻塞的系统调用
+- 系统调用返回后，再次调用 `alarm(0)` 或 `setitimer()` 来屏蔽定时器
+- 检查系统调用失败是否将 `errno` 置为 `EINTR`
+
+
+
+## 4. 休眠
+
+**低分辨率休眠**  
+
+```c
+#include <unistd.h>
+
+unsigned int sleep(unsigned int seconds);
+// return 0 on normal completion or number of 
+// unslept seconds if prematurely terminated
+```
+
+如果休眠正常结束， `sleep()` 返回 0。如果因信号而中断休眠，`sleep()` 将返回剩余（未休眠）的秒数  
+
+由于系统负载的原因，内核可能会在完成 `sleep()` 的一段（通常很短）时间后才对进程重新加以调度  
+
+
+
+**高分辨率休眠**  
+
+```c
+#include <time.h>
+
+struct timespec {
+    time_t tv_sec;
+    long   tv_nsec;
+};
+
+int nanosleep(const struct timespec *request, struct timespec* remain);
+// return 0 on successfully completed sleep or
+// -1 on error or interrupted sleep
+```
+
+`nanosleep()` 的更大优势在于，SUSv3 明文规定不得使用信号来实现该函数  
+
+不过还是可以通过信号处理函数来将其中断，`nanosleep()` 将返回-1，并将 errno 置为 EINTR  
+
+其精度依然受制于软件时钟的间隔大小  
+
+
+
+## 5. POSIX 时钟
+
+在 Linux 中，调用此 API 的程序需要使用 `-lrt` 选项进行编译  
+
+**获取时钟的值**  
+
+```c
+#include <time.h>
+
+int clock_gettime(clockid_t clockid, struct timespec *tp);
+int clock_getres(clockid_t clockid, struct timespec *res);
+// return 0 on success or -1 on error
+```
+
+`gettime` 获取时间，`getres` 获取时间精度，在 WSL Ubuntu 1804 上为 100 ns  
+
+
+
+`clockid`:  
+
+- `CLOCK_REALTIME`：可设定的系统级实时时钟
+- `CLOCK_MONOTONIC`：不可设定的恒定态时钟，系统启动后就不会发生改变。 该时钟适用于那些无法容忍系统时钟发生跳跃性变化（例如：手工改变了系统时间）的应用程序。 Linux 上，这种时钟对时间的测量始于系统启动  
+- `CLOCK_PROCESS_CPUTIME_ID`：每进程 CPU 时间时钟
+- `CLOCK_THREAD_CPUTIME_ID`：每线程 CPU 时间时钟
+
+
+
+**设置时钟的值**  
+
+```c
+#include <time.h>
+
+int clock_settime(clockid_t clockid, const struct timespec *tp);
+// return 0 on success or -1 on error
+```
+
+如果由 tp 指定的时间并非由 `clock_getres()` 所返回时钟分辨率的整数倍，时间会向下取整。  
+
+特权级（CAP_SYS_TIME）进程可以设置 CLOCK_REALTIME 时钟。该时钟的初始值通常是自 Epoch（1970 年 1 月 1 日 0 点 0 分 0 秒）以来的时间  
+
+在 WSL Ubuntu 1804 上测试，`clock_settime` 调用失败，Function not implemented
+
+
+
+**获取特定进程或线程的时钟ID**  
+
+```c
+#include <time.h>
+
+int clock_getcpuclockid(pid_t pid, clockid_t *clockid);
+
+#include <pthread.h>
+#include <time.h>
+
+int pthread_getcpuclockid(pthread_t thread, clockid_t *clockid);
+
+// return 0 on success or positive error number on error
+```
+
+
+
+**高分辨率休眠改进版**  
+
+```c
+#include <time.h>
+
+int clock_nanosleep(clockid_t clockid, int flags,
+                    const struct timespec *request,
+                    const struct timespec *remain);
+// return 0 on successfully completed sleep
+// or a positive error number on error or interrupted sleep
+```
+
+默认情况下（即 flags 为 0），由 request 指定的休眠间隔时间是相对时间。不过在 flags 指定 `TIMER_ABSTIME`，则表示 clockid 时钟所测量的绝对时间，这一特性对于那些需要精确休眠一段指定时间的应用程序至关重要  
+
+比如等待 20s
+
+```c
+struct timespec request;
+if (clock_gettime(CLOCK_REALTIME, &request) == -1) {
+    errExit("clock_gettime");
+}
+
+request.tv_sec += 20; // sleep for 20 seconds from now
+err = clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &request, NULL);
+if (err) {
+    if (err == EINTR) {
+        printf("Interrupted by signal handler\n");
+    } else {
+		errExitEN(s, "clock_nanosleep");
+    }
+}
+```
+
+
+
+## 6. POSIX 间隔式定时器
+
+使用 `setitimer()` 的制约：
+
+- 针对 ITIMER_REAL、 ITIMER_VIRTUAL 和 ITIMER_PROF 这 3 类定时器，每种只能设置一个 
+- 只能通过发送信号的方式来通知定时器到期，也不能改变到期时产生的信号  
+- 如果一个间隔式定时器到期多次，且相应信号遭到阻塞时，那么会只调用一次信号处理器函数。换言之，无从知晓是否出现过定时器溢出（timer overrun）的情况  
+- 定时器的分辨率只能达到微秒级。不过，一些系统的硬件时钟提供了更为精细的时钟分辨率，软件此时应采用这一较高分辨率  
+
+可以使用 POSIX.1b API 来突破这些限制  
+
+
+
+**创建定时器**  
+
+```c
+#include <signal.h>
+#include <time.h>
+
+union sigval {
+  	int   sival_int;
+    void* sival_ptr;
+};
+
+struct sigevent {
+    int          sigev_notify; /* Notification method */
+    int          sigev_signo;  /* Notification signal */
+    union sigval sigev_value;  /* Data passed with
+                                  notification */
+    void       (*sigev_notify_function) (union sigval);
+                     /* Function used for thread
+                        notification (SIGEV_THREAD) */
+    void        *sigev_notify_attributes;
+                     /* Attributes for notification thread
+                        (SIGEV_THREAD) */
+    pid_t        sigev_notify_thread_id;
+                     /* ID of thread to signal (SIGEV_THREAD_ID) */
+};
+
+int timer_create(clockid_t clockid, struct sigevent *evp, timer_t *timerid);
+// return 0 on success or -1 on error
+```
+
+`sigev_notify`：  
+
+- `SIGEV_NONE`：不通知，使用 `timer_gettime()` 检测定时器
+- `SIGEV_SIGNAL`：发送 `sigev_signo` 信号给进程。如果 `sigev_signal` 为实时信号，那么 `sigev_value` 字段则指定了信号的伴随数据（整型或指针）。通过 `siginfo_t` 结构的 `si_value` 可获取这一数据，至于 `siginfo_t` 结构，既可以直接传递给该信号的处理器函数，也可以由调用 `sigwaitinfo()` 或 `sigtimerdwait()` 返回  
+- `SIGEV_THREAD`：调用 `sigev_notify_function()` 作为新线程的
+- `SIGEV_THREAD_ID`：发送 `sigev_signo` 信号给 `sigev_notify_thread_id` 所标识的线程
+
+新创建的 timer 从 `timerid` 返回，`timerid` 必须是非空指针  
+
+
+
+**设置和解除定时器**  
+
+```c
+#include <time.h>
+
+int timer_settime(timer_t timerid, int flags, const struct itimerspec *value,
+                  struct itimerspec *old_value);
+// return 0 on success or -1 on error
+```
+
+函数 `timer_settime()` 的参数 `timerid` 是一个定时器 handle，由之前对 `timer_create()` 的调用返回  
+
+参数 `value` 和 `old_value` 则类似于函数 `setitimer()` 的同名参数  
+
+`flags` 可以置为 0 或 TIMER_ABSTIME  
+
+如果解除计时器，可以将 `value.it_value` 所有字段设置为 0  
+
+
+
+**获取定时器当前值**  
+
+```c
+#include <time.h>
+
+int timer_gettime(timer_t timerid, struct itimerspec *curr_value);
+// return 0 on success or -1 on error
+```
+
+`curr_value` 指针所指向的 `itimerspec` 结构中返回的是时间间隔以及距离下次定时器到期的时间。即使是以 `TIMER_ABSTIME` 标志创建的绝对时间定时器，在 `curr_value.it_value` 字段中返回的也是距离定时器下次到期的时间值  
+
+
+
+**删除定时器**  
+
+```c
+#include <time.h>
+
+int timer_delete(timer_t timerid);
+// return 0 on success or -1 on error
+```
+
+对于已启动的定时器，会在移除前自动将其停止。如果因定时器到期而已经存在 pending 的信号，那么信号会保持这一状态  
+
+
+
+**通过信号发出通知**  
+
+如果选择通过信号来接收定时器通知，那么处理这些信号时既可以采用信号处理器函数，也可以调用 `sigwaitinfo()` 或是 `sigtimerdwait()`  
+
+
+
+**定时器溢出**  
+
+已经选择通过信号传递的方式来接收定时器到期通知。进一步假设，在捕获或接收相关信号之前，定时器到期多次。这可能是因为进程再次获得调度前的延时所致  
+
+可以使用 `timer_getoverrun()` 来获取获得溢出次数的，比如上次收到信号后定时器发生了 3 次到期，那么溢出计数是 2  
+
+```c
+#include <time.h>
+
+int timer_getoverrun(timer_t timerid);
+// return timer overrun count on success or -1 on error
+```
+
+是异步信号安全函数之一  
+
+
+
+## 7. 通过文件描述符进行通知
+
+Linux 2.6.25 之后，提供了另一种创建定义定时器的 API，Linux 特有的 timerfd API  
+
+类似于 `timer_*` API  
+
+可以从文件描述符中读取其创建定时器的到期通知，因此可以使用 `select|poll|epoll` 将这种文件描述符同其他文件描述符一同进行监控  
+
+```c
+#include <sys/timerfd.h>
+
+int timerfd_create(int clockid, int flags);
+// return fd on success or -1 on error
+```
+
+参数 `clockid` 的值可以设置为 `CLOCK_REALTIME` 或 `CLOCK_MONOTONIC`  
+
+`flags`： `TFD_CLOEXEC | TFD_NONBLOCK`
+
+
+
+```c
+#include <sys/timerfd.h>
+
+int timerfd_settime(int fd, int flags, const struct itimerspec *new_value,
+                    struct itimerspec *old_value);
+int timerfd_gettime(int fd, struct itimerspec *curr_value);
+// return 0 on success or -1 on error
+```
+
+`flags`：0 or `TFD_TIMER_ABSTIME`  
+
+
+
+调用 `fork()` 期间，子进程会继承 `timerfd_create()` 所创建文件描述符的拷贝。这些描述符与父进程的对应描述符均指代相同的定时器对象，任一进程都可读取定时器的到期信息。`timerfd_create()` 创建的文件描述符能跨越 `exec()` 得以保存（除非将描述符置为 `TFD_CLOEXEC`），已配备的定时器在 `exec()` 之后会继续生成到期通知  
+
+
+
+**从 `timerfd` 中读取**  
+
+一旦以 `timerfd_settime()` 启动了定时器，就可以从相应文件描述符中调用 `read()` 来读取定时器的到期次数。出于这一目的，传给 `read()` 的缓冲区必须足以容纳一个无符号 8 字节整型（uint64_t）数。  
+
+在上次使用 `timerfd_settime()` 修改设置以后，或是最后一次执行 `read()` 后，如果发生了一起到多起定时器到期事件， 那么 `read()` 会立即返回， 且返回的缓冲区中包含了已发生的到期次数。如果并无定时器到期， `read()` 会一直阻塞直至产生下一个到期。也可以执行 `fcntl()` 的 `F_SETFL` 操作为文件描述符设置 `O_NONBLOCK` 标志，这时的读动作是非阻塞式的，且如果没有定时器到期，则返回错误，并将 errno 值置为 `EAGAIN`  
+
+
+
