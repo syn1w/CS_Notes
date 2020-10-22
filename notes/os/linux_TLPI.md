@@ -5367,3 +5367,90 @@ pid_t vfork(void);
 
 调用 `fork()` 之后，如果进程某甲需等待进程某乙完成某一动作，那么某乙（即活动进程）可在动作完成后向某甲发送信号；某甲则等待即可  
 
+
+
+# 二十五、进程终止
+
+## 1. `_exit/exit`
+
+系统调用  
+
+```c
+#include <unistd.h>
+
+void _exit(int status);
+```
+
+状态 EXIT_SUCCESS(0) 为成功退出，而非 0 值 EXIT_FAILURE(1)  为出错退出  
+
+
+
+C 库函数  
+
+```c
+#include <stdlib.h>
+
+void _Exit(int status);  // <==> _exit
+void exit(int status);   // not equal
+```
+
+`exit` 相比 `_exit` 会执行一些清理操作：  
+
+- 逆序调用退出时的处理程序（`atexit()` 和 `on_exit()` 注册的函数）
+- 刷新 stdio 缓冲区
+- 移除 `tmpfile` 创建的文件
+
+在 `main`  函数最后 `return n` 等同于执行 `exit(n)` 的调用  
+
+如果在退出的过程中，`setvbuf()` 或 `setbuff()` 时引用了 `main` 函数的本地变量，那么从 `main` 返回将导致未定义行为  
+
+如果无声无息执行到 `main()` 结尾，C99 规定，该情况也等同于调用 `exit(0)`，但是 C89 的返回值取决于栈或特定寄存器的值  
+
+
+
+## 2. 进程终止的细节
+
+无论进程是否正常终止，都会发生如下动作：
+
+- 关闭所有文件描述符、目录流(opendir)、信息目录描述符(`catopen,catgets`) 以及字符集转换描述符(`iconv_open`)，关闭文件描述符也就导致释放所持有的任意文件锁
+- 分离(detach) 任何已连接的 System V 共享内存段，并将各段的 `shm_nattch` 计数器值减一
+- 进程为每个 System V 信号量所设置的 `semadj` 值将会被加到信号量值中
+- 如果该进程是管理终端的管理进程，那么会向该终端前台进程组中的每个进程发送 `SIGHUB` 信号，然后终端会 session 脱离
+- 关闭该进程打开的任意 POSIX 有名信号量，类似调用 `sem_close()`
+- 关闭该进程打开的任何 POSIX 消息队列，类似于调用 `mq_close()`
+- 如果某进程组成为孤儿，且该组中存在任何已停止进程，则组中所有进程都将收到 SIGHUP 信号，随之为 SIGCONT 信号  
+- 移除该进程通过 `mlock()` 或 `mlockall()` 所建立的任何内存锁  
+- 取消该进程调用 `mmap()` 所创建的任何内存映射  
+
+
+
+## 3. 退出处理程序
+
+**注册退出处理程序**   
+
+```c
+#include <stdlib.h>
+
+int atexit(void (*func)(void));
+// return 0 on success or -1 on error
+```
+
+这些函数的执行顺序与注册顺序相反  
+
+通过 `fork()` 创建的子进程会继承父进程注册的退出处理函数。而进程调用 `exec()` 时，会移除所有已注册的退出处理程序。  
+
+
+
+经由 `atexit()` 注册的退出处理程序会受到两种限制。其一，退出处理程序在执行时无法获知传递给 `exit()` 的状态。其二，无法给退出处理程序指定参数，glibc 提供了一个非标准的替代方法：
+
+```c
+#include <stdlib.h>
+
+int on_exit(void (*func)(int status, void *arg), void *arg);
+// return 0 on success or nonzero on error
+```
+
+
+
+作为针对 stdio 缓冲区问题的特定解决方案，可以在调用 `fork()` 之前使用函数 `fflush()` 来刷新 stdio 缓冲区。作为另一种选择，也可以使用 `setvbuf()` 和 `setbuf()` 来关闭 stdio 流的缓冲功能  
+
