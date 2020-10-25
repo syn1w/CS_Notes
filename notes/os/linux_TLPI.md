@@ -5454,3 +5454,159 @@ int on_exit(void (*func)(int status, void *arg), void *arg);
 
 作为针对 stdio 缓冲区问题的特定解决方案，可以在调用 `fork()` 之前使用函数 `fflush()` 来刷新 stdio 缓冲区。作为另一种选择，也可以使用 `setvbuf()` 和 `setbuf()` 来关闭 stdio 流的缓冲功能  
 
+
+
+# 二十六、监控子进程
+
+## 1. 等待子进程
+
+对于许多需要创建子进程的应用来说，父进程能够监测子进程的终止时间和过程是很有必要的。 wait()以及若干相关的系统调用提供了这一功能  
+
+**wait**  
+
+```c
+#include <sys/types.h>
+#include <sys/wait.h>
+
+pid_t wait(int *wstatus);
+// return pid of terminated child or -1 on error
+```
+
+`wait()` 系统调用：
+
+- 如果调用进程子进程（之前没有被 `wait` 过）尚未终止，调用将一直阻塞，直至某个子进程终止，如果调用时已有的子进程终止，`wait()` 则立即返回
+- 如果 `wstatus` 非空，则子进程的 exit code 会通过 `wstatus` 返回  
+- 内核将为父进程下所有的子进程运行总量追加 CPU 时间以及资源使用数据  
+- 将终止的子进程 ID 作为 `wait()` 的返回值返回
+
+返回 -1 可能是调用进程并无子进程（之前没有被 `wait` 过），此时会将 `errno`  置为 `ECHILD` 可以使用下面的循环来等待所有子进程  
+
+```c
+while ((child = wait(nullptr)) != -1) {
+    continue;
+}
+
+if (errno != ECHILD) {
+    errExit("wait");
+}
+```
+
+
+
+**waitpid**  
+
+`wait` 存在诸多限制，`waitpid` 可以突破这些限制：
+
+- `wait` 无法等待某个特定的子进程
+- 如果没有子进程退出，`wait` 保证阻塞，有时候会希望非阻塞  
+- 使用 `wait` 只能发现已经终止的子进程，对于子进程收到 SIGSTOP 而暂停或已经暂停的子进程收到 SIGCONT 信号恢复执行的情况无能为力  
+
+```c
+#include <sys/wait.h>
+
+pid_t waitpid(pid_t pid, int *wstatus, int options);
+// return pid of child, 0 or -1 on error
+```
+
+`pid`：
+
+- 如果 `pid > 0`，表示等待的子进程 ID 为 `pid`
+- 如果 `pid == 0`，表示等待与父进程同一进程组的所有子进程  
+- 如果 `pid == -1`，表示等待任意子进程  
+- 如果 `pid < -1`，等待进程组 ID 与 `pid` 绝对值相等的所有子进程
+
+`options`：
+
+- `WUNTRACED`：除了返回终止子进程的信息外，还返回因信号而暂停的子进程信息  
+- `WCONTINUED`：返回那些因收到 SIGCONT 信号而恢复执行的已停止子进程的状态信息  
+- `WNOHANG`：如果参数 `pid` 所指定的子进程并未发生状态改变，则立即返回， 而不会阻塞。在这种情况下，`waitpid()` 返回 0  
+
+
+
+**等待状态值**  
+
+子进程事件：正常终止、被信号所杀、被信号暂停、被信号恢复执行  
+
+可以用宏来判断 `wstatus` 的状态  
+
+- `WIFEXITED(wstatus)`：如果子进程正常终止返回 `true`，宏 `WEXITSTATUS(wstatus)` 返回子进程的退出状态
+- `WIFSIGNALED(wstatus)`：如果子进程被信号杀死返回 `true`，宏 `WTERMSIG(wstatus)` 返回导致子进程终止的信号编号
+- `WIFSTOPPED(wstatus)`：如果子进程被信号暂停返回 `true`，宏 `WSTOPSIG(wstatus)` 返回导致子进程停止的信号  
+- `WIFCONTINUED(wstatus)`：如果子进程收到 `SIGCONT` 恢复执行返回 `true`  
+
+
+
+**waitid/wait3/wait4**  
+
+```c
+#include <sys/wait.h>
+
+int waitid(idtype_t idtype, id_t id, siginfo_t *infop, int options);
+// return 0 on success or if WNOHANG was specified and 
+// there were no children to wait for,
+// or -1 on error
+```
+
+```c
+#include <sys/resource.h>
+#include <sys/wait.h>
+
+pid_t wait3(int *wstatus, int options, struct rusage *usage);
+pid_t wait4(pid_t pid, int *wstatus, int options, struct rusage *usage);
+// return pid of child or -1 on error
+```
+
+
+
+## 2. 孤儿/僵尸进程
+
+孤儿进程：其父进程退出执行或被终止后，仍然继续运行的进程（子进程）。之后 `init` 进程会接管孤儿进程  
+
+僵尸进程：完成执行但是操作系统中仍然保存其进程控制块（包含进程 ID、终止状态、资源使用情况），处于”终止“状态的进程。这发生于子进程需要保留表项以允许其父进程读取子进程的退出状态。如果父进程未执行 `wait`  随即退出，那么 init 进程将接管子进程并自动调用 `wait()`，从而移除僵尸进程  
+
+如果父进程是长生命周期的父进程，父进程中应该执行 `wait*` 操作，确保能够清理死去的子进程  
+
+
+
+## 3. SIGCHLD
+
+无论一个子进程于何时终止，系统都会向其父进程发送 SIGCHLD 信号。对该信号的默认处理是将其忽略，可以注册处理程序来来处理僵尸进程问题  
+
+需要更深入考虑的问题是可重入性，在信号处理程序中使用系统调用 `wait*` 可能会改变全局变量 errno 的值  
+
+```c
+static volatile int numLiveChildren = 0;
+
+static void sigChildHandler(int sig) {
+    int savedErrno = errno;
+    
+    // log catch SIGCHLD...
+    
+    pid_t child;
+    int status = 0;
+    while ((child = waitpid(-1, &status, WNOHANG)) > 0) {
+        // log reaped child
+        --numLiveChildren;
+    }
+}
+
+int main() {
+    // ...
+	// numLiveChild = ...;
+}
+```
+
+
+
+当信号导致子进程暂停时，父进程也可能收到 `SIGCHILD` 信号，调用 `sigaction()` 设置 `SIGCHILD` 信号处理程序时，传入 `SA_NOCLDSTOP` 可以使系统不会因为子进程暂停而发出 `SIGCHILD` 信号  
+
+如果对 `SIGCHILD` 信号的处理显式置为 `SIG_IGN`，有的系统从而会将其终止的子进程立即删除，不会转为僵尸进程，这时会将子进程的丢弃，后续的 `wait*` 调用也不会返回子进程的任何信息  
+
+在 Linux 系统中将对 `SIGCHLD` 信号的处置置为 `SIG_IGN` 并不会影响任何既有僵尸进程的状态，对它们的等待仍然要照常进行  
+
+`SA_NOCLDWAIT`：  
+
+如果是 `SIGCHILD` 信号，当子进程终止时不会成为僵尸进程。POSIX.1 未规定系统在子进程终止时，是否向其父进程发送 `SIGCHILD` 信号。Linux 实现中，仍然会向父进程发送 `SIGCHILD` 信号  
+
+
+
