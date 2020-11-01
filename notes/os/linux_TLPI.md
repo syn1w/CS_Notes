@@ -6039,3 +6039,126 @@ int pthread_detach(pthread_t thread);
 
 
 
+# 三十、线程同步
+
+## 1. 互斥量
+
+**静态分配的互斥量初始化**  
+
+```c
+pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+```
+
+**加锁和解锁**  
+
+```c
+#include <pthread.h>
+
+int pthread_mutex_lock(pthread_mutex_t *mutex);
+int pthread_mutex_unlock(pthread_mutex_t *mutex);
+// return 0 on success or a positive error number on error
+```
+
+在调用 `pthread_mutex_lock()` 时需要指定互斥量。如果互斥量当前处于未锁定状态，该调用将锁定互斥量并立即返回。如果其他线程已经锁定了这一互斥量，那么 `pthread_mutex_lock()` 调用会一直堵塞，直至该互斥量被解锁  
+
+对处于未锁定状态的互斥量进行解锁，或者解锁由其他线程锁定的互斥量都会导致错误  
+
+
+
+Pthreads API 提供了 `pthread_mutex_trylock()` 和 `pthread_mutex_timedlock()` 调用  
+
+如果信号量已然锁定，对其执行函数 `pthread_mutex_trylock()` 会失败并返回 `EBUSY` 错误  
+
+`pthread_mutex_timedlock()` 可以指定一个 `abstime`，当到达时间间隔，而线程又没有获得 mutex 的所有权，那么就返回 `ETIMEDOUT` 错误
+
+Linux 上，互斥量的实现采用了 futex(fast user space mutex)，而对锁争用的处理则使用了 `futex()` 系统调用  
+
+
+
+**动态初始化互斥量**  
+
+```c
+#include <pthread.h>
+
+int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr);
+// return 0 on success or a positive error number on error
+```
+
+`attr`：
+
+- `PTHREAD_MUTEX_NORMAL`：不具有死锁检测功能
+- `PTHREAD_MUTEX_ERRORCHECK`：对此类互斥量的所有操作都会执行错误检查。可将其作为调试工具，以发现程序在哪里违反了互斥量使用的基本原则  
+- `PTHREAD_MUTEX_RECURSIVE`：递归互斥量维护有一个锁计数器。当线程第 1 次取得互斥量时，会将锁计数器置 1。后续由同一线程执行的每次加锁操作会递增锁计数器的数值，而解锁操作则递减计数器计数。只
+  有当锁计数器值降至 0 时，才会释放该互斥量  
+- `PTHREAD_MUTEX_DEFAULT`：使用 `PTHREAD_MUTEX_INITIALIZER` 或 attr 为 NULL 的互斥量
+
+
+
+## 2. condition variable
+
+条件变量允许一个线程就某个共享变量的状态变化通知其他线程，并让其他线程等待这一通知  
+
+**静态分配的条件变量**  
+
+```c
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+```
+
+
+
+**通知和等待条件变量**  
+
+```c
+#include <pthread.h>
+
+int pthread_cond_signal(pthread_cond_t *cond);
+int pthread_cond_broadcast(pthread_cond_t *cond);
+int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
+int pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex,
+                           const struct timespec *abstime);
+// return 0 on success or a positive error number on error
+```
+
+`pthread_cond_signal()` 唤醒至少一条被阻塞的线程，而 `pthread_cond_broadcast()` 唤醒所有被阻塞的线程，但函数 `pthread_cond_signal()` 会更为高效  
+
+
+
+**测试条件变量的判断条件**  
+
+必须由一个循环，而不是 if 语句，来控制对 `pthread_cond_wait()` 的调用，因为可能发生虚假唤醒  
+
+比如：
+
+```c
+while (avail == 0) {
+    s = pthread_cond_wait(&cond, &mtx);
+    if (s != 0) {
+        errExitEN(s, "pthread_cond_wait");
+    }
+}
+```
+
+
+
+**动态初始化的条件变量**  
+
+```c
+#include <pthread.h>
+
+int pthread_cond_init(pthread_cond_t *cond, const pthread_condattr_t *attr);
+// return 0 on success or a positive error number on error
+```
+
+
+
+对动态初始化的条件变量需要调用 `pthread_cond_destroy()` 进行销毁，使用 `PTHREAD_COND_INITIALIZER` 进行静态初始化的条件变量，无需摧毁  
+
+```c
+#include <pthread.h>
+
+int pthread_cond_destroy(pthread_cond_t *cond);
+// return 0 on success or a positive error number on error
+```
+
+
+
