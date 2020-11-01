@@ -5879,3 +5879,163 @@ options 参数添加了：
 
 
 
+# 二十九、线程
+
+## 1. 概述
+
+线程（thread）是允许应用程序并行执行多个任务的一种机制  
+
+一个进程可以包含多个线程，同一进程中的所有线程共享同一份全局内存区域，包含数据段、BSS 段、以及堆段，每个线程有自己的栈段  
+
+```txt
+    |                    ...                      |   
+    +---------------------------------------------+
+    |          main thread stack frame            |
+    |                     |                       |
+    |                     V                       |
+    +---------------------------------------------+
+    |            thread n stack frame             |
+    +---------------------------------------------+
+    |          thread n-1 stack frame             |
+    +---------------------------------------------+
+    |                    ...                      |
+    +---------------------------------------------+
+    |            thread 2 stack frame             |
+    +---------------------------------------------+
+    |            thread 1 stack frame             |
+    +---------------------------------------------+
+    |   shared function libraries, shared memory  |
+    +---------------------------------------------+
+    |                    ...                      |
+```
+
+除了共享的内存区域外，还共享的其他属性：
+
+- PID、PPID、GID、session ID
+- 控制终端、进程凭证、打开的 fd、`fcntl()` 创建的 record lock、umask、当前工作目录和根目录
+- 信号处理、`setitimer()` 和 `timer_create()` 创建的定时器
+- System V 信号量 undo 值
+- CPU 时间消耗(`times()` 返回)、资源限制、资源消耗(`getrusage()` 返回)
+- nice 值
+
+线程独有的一部分属性：
+
+- TID
+- signal mask、signalstack
+- errno 变量、浮点型环境(fenv)
+- 实时调度策略和优先级
+- CPU 亲和力、capacity(Linux 特有)、栈
+
+
+
+## 2. pthread
+
+**线程数据类型**  
+
+|      数 据 类 型      |                   描 述                   |
+| :-------------------: | :---------------------------------------: |
+|      `pthread_t`      |                  线程 ID                  |
+|   `pthread_mutex_t`   |            互斥对象（ Mutex）             |
+| `pthread_mutexattr_t` |                 互斥属性                  |
+|   `pthread_cond_t`    |      条件变量（condition variable）       |
+| `pthread_condattr_t`  |              条件变量的属性               |
+|    `pthread_key_t`    |          线程特有数据的键（Key）          |
+|   `pthread_once_t`    | 一次性初始化控制上下文（control context） |
+|   `pthread_attr_t`    |              线程的属性对象               |
+
+
+
+## 3. 创建线程
+
+```c
+#include <pthread.h>
+
+int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+                   void *(*func)(void*), void* arg);
+// return 0 on success or positive error number on error
+```
+
+新线程从 `func(arg)` 开始执行，调用 `pthread_create` 的线程会继续执行该调用之后的语句  
+
+`func()` 的返回类型是 `void*`，将强制转换的整型作为 `func()` 的返回值时，必须小心谨慎，因为取消线程时的返回值是 `PTHREAD_CANCELED`，如欲保证程序的可移植性，则在任何将要运行该应用的实现中，正常退出线程的返回值应不同于相应的 `PTHREAD_CANCELED` 值  
+
+新线程获取自己的 thread ID 可以使用 `thread_self()` 方法  
+
+
+
+## 4. 终止线程
+
+线程终止方法：
+
+- `func` 函数执行 return 语句并返回指定值  
+- 线程调用 `pthread_exit()`
+- 调用 `pthread_cancel()` 取消线程
+- 任意线程调用了 `exit()` 或者主线程执行了 return 语句都会导致进程中的所有线程立即终止 
+
+```c
+#include <pthread.h>
+
+void pthread_exit(void *retval);
+```
+
+
+
+## 5. TID
+
+```c
+#include <pthread.h>
+
+pthread_t pthread_self(void);
+// rerurn the TID of the calling thread
+
+int pthread_equal(pthread_t t1, pthread_t t2);
+// return nonzero value if t1 and t2 are equal, otherwise 0
+```
+
+
+
+## 6. join
+
+```c
+#include <pthread.h>
+
+int pthread_join(pthread_t thread, void** retval);
+// return 0 on success or positive error number on error
+```
+
+若 retval 为一非空指针，将会保存线程终止时返回值的拷贝，该返回值亦即线程调用 return 或 `pthred_exit()` 时所指定的值  
+
+如果线程未分离(detached)，则必须使用 `pthread_join` 来进行等待，否则就会产生僵尸线程，如果僵尸线程累积过多，则无法创建新的线程  
+
+线程之间的关系是对等的。进程中的任意线程均可以调用 `pthread_join()` 与该进程的任何其他线程连接起来  
+
+
+
+## 7. detach
+
+默认情况下，线程是 joinable，当线程退出时，其他线程可以通过调用 `pthread_join()` 获取其返回状态。有时，程序员并不关心线程的返回状态，只是希望系统在线程终止时能够自动清理并移除之。在这种情况下，可以调用 `pthread_detach()` 并向 thread 参数传入指定线程的标识符，将该线程标记为处于分离（detached）状态  
+
+```c
+#include <pthread.h>
+
+int pthread_detach(pthread_t thread);
+// return 0 on success or a positive error number on error
+```
+
+其他线程调用了 `exit()`，或是主线程执行 return 语句时，即便遭到分离的线程也还是会受到影响  
+
+
+
+## 8. 线程和进程
+
+线程共享数据比较简单，创建线程和线程间进行上下文切换一般比进程要快  
+
+线程的一些缺点：
+
+- 多线程编程需要确保调用 thread-safe 的函数或以线程安全的方式来调用函数
+- 某个线程的 bug 会危及该进程的所有线程
+- 每个线程在争用宿主进程中有限的虚拟地址空间
+- 多线程处理信号需要小心设计（一般建议在多线程程序中避免使用信号）
+
+
+
