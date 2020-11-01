@@ -5610,3 +5610,272 @@ int main() {
 
 
 
+# 二十七、程序执行
+
+## 1. `execve()`
+
+```c
+#include <unistd.h>
+
+int execve(const char *pathname, char *const argv[], char *const envp[]);
+// never return on success or -1 on error
+// envp: name=value
+```
+
+执行出错 `errno`：
+
+- EACCESS：没有执行权限或 pathname 中某一级目录不可搜索
+- ENOENT：pathname 指定的文件不存在
+- ENOEXEC：赋予了可执行权限，但是文件不是一个可执行文件或脚本
+- ETXTBSY：存在进程以写入的方式打开了 pathname 所指代的文件
+- E2BIG：参数列表和环境列表超出了运行的最大值
+
+
+
+## 2. `exec` 库函数
+
+```c
+#include <unistd.h>
+
+int execle(const char *pathname, const char *arg, ...
+           /* , (char *)NULL, char *const envp[] */);
+int execlp(const char *filename, const char *arg, ...,
+           /*, (char *)NULL */);
+int execvp(const char *filename, char *const argv[]);
+int execv(const char *pathname, char *const argv[]);
+int execl(const char *pathname, const char *arg, ...
+          /* , (char *)NULL */);
+int fexecve(int fd, char *const argv[], char *const envp[]);
+// never return on success or -1 on error
+```
+
+指定可执行程序路径和文件名：
+
+- 带有后缀 `p`(PATH)： 传入 `filename`，会在环境变量 PATH 中寻找相应的可执行文件，如果包含 `/`，不再使用变量 `PATH` 来搜索文件
+- 不带后缀 `p`：传入 `pathname`，需要提供程序的路径名
+
+传入 argv 方式：
+
+- `l` 后缀(list)：使用可变参数列表传参，以 NULL 结尾
+- `v` 后缀(vector)：使用 `char *const argv[]` 数组来传参
+
+环境变量：
+
+- 带有 `e` 后缀：通过 `envp` 传入环境变量
+- 不带 `e` 后缀：使用调用者当前环境变量作为新程序的环境变量
+
+`fexecve` 传入文件描述符，当作被执行的程序  
+
+
+
+## 3. fd 与 `exec`
+
+由 `exec()` 的调用程序所打开的所有文件描述符在 `exec()` 的执行过程中会保持打开状态，且在新程序中依然有效。  
+
+设置了 `FD_CLOEXEC`  标志，在成功执行 `exec()` 时，会自动关闭该文件描述符  
+
+
+
+## 4. 信号与 `exec`
+
+`exec()` 在执行时会将现有进程的文本段丢弃。该文本段可能包含了由调用进程创建的信号处理器程序。内核就会将对所有已设信号的处置重置为 `SIG_DFL`，而对所有其他信号的处置则保持不变  
+
+在 Linux 中，调用 `exec()` 之后，继续让遭忽略的 `SIGCHLD` 信号保持被忽略状态，对于忽略 SIGCHLD 的
+程序而言，要最大限度的保证可移植性，在调用 `exec()` 之前，执行 `signal(SIGCHLD, SIG_DFL)`  
+
+旧程序的数据段、堆、栈段都被摧毁，也就意味着通过 `sigaltstack()` 创建的任何备选信号都会丢失  
+
+在调用 `exec()` 期间，进程信号掩码以及挂起信号的设置均得以保存，建议在调用 `exec()` 执行任何程序的过程中，不应当阻塞或忽略信号。  
+
+
+
+## 5. `system`
+
+```c
+#include <stdlib.h>
+
+int system(const char *command);
+```
+
+使用 `system` 需要创建至少两个进程，一个用于运行 shell，一个运行 shell 所执行的命令  
+
+如果对效率有要求，最好调用 `fork + exec*` 来执行指定程序  
+
+返回值：
+
+- 当 command 为 NULL 指针时， 如果 shell 可用则 `system()` 返回非 0 值，若不可用则返回 0。  
+- 如果无法创建子进程或是无法获取其终止状态，那么 `system()` 返回 -1  
+- 若子进程不能执行 shell，则 `system()` 的返回值会与子 shell 调用 `_exit(127)` 终止时一样  
+- 如果所有的系统调用都成功， `system()` 会返回执行 command 的子 shell 的终止状态  
+
+当在 Set UID 和 Set GID 条件下尽量避免使用 `system()`  
+
+
+
+# 二十八、详述进程创建/执行
+
+## 1. process accounting
+
+当打开 process accounting 功能后， 内核在每个进程终止时将一条 process accounting 信息写入系统级的 process accounting 文件中。包含了内核为该进程所维护的多种信息，包括终止状态以及进程消耗的CPU 时间  
+
+应用程序很少使用这一功能  
+
+
+
+## 2. clone
+
+```c
+#include <sched.h>
+
+int clone(int (*func) (void*), void* childstack, int flags, void* funcarg,
+          /* pid_t *ptid, struct user_desc *tls, pid_t *ctid */...);
+// return pid of child on success or -1 on error
+```
+
+Linux 特有的系统调用 `clone()` 也能创建一个新进程。与前两者不同的是，后者在进程创建期间对步骤的控制更为精准。 `clone()` 主要用于线程库的实现  
+
+克隆生成的子进程继续运行时不以调用处为起点，转而去调用以参数 `func` 所指定的函数，`func` 又称为 child function，  调用 child function 时的参数由 `funcarg` 指定  
+
+`fork()`、 `vfork()` 以及 `clone()` 均由  `kernel/fork.c` 中的 `do_fork()` 实现  
+
+当函数 `func` 返回（此时其返回值即为进程的退出状态）或是调用 `exit*` 之后，clone 产生的子进程就会终止。父进程可以通过 wait()一类函数来等待克隆子进程  
+
+因为克隆产生的子进程可能共享父进程的内存，所以它不能使用父进程的栈。相反，调用者必须分配一块大小适中的内存空间供子进程的栈使用，同时将这块内存的指针置于参数 `childstack` 中。在大多数硬件架构中，栈空间的增长方向是向下的，所以参数 `childstack` 应当指向所分配内存块的高端  
+
+`flags`:  
+
+| 标 志                | 设置后的效果                                                 |
+| :------------------: | :----------------------------------------------------------: |
+| CLONE_CHILD_CLEARTID | 当子进程退出时，清除 ctid（从版本 2.6 开始） |
+| CLONE_CHILD_SETTID   | 将子进程的线程 ID 写入 ctid（从 2.6 版本开始）               |
+| CLONE_FILES          | 父、子进程共享打开文件描述符表                               |
+| CLONE_FS             | 父、子进程共享与文件系统相关的属性（umask，chroot，chdir）   |
+| CLONE_IO             | 子进程共享父进程的 I/O 上下文环境（从 2.6.25 版本开始）      |
+| CLONE_NEWIPC         | 子进程获得新的 System V IPC 命名空间（从 2.6.19 开始）       |
+| CLONE_NEWNET         | 子进程获得新的网络命名空间（从 2.4.24 版本开始）             |
+| CLONE_NEWNS         | 子进程获得父进程挂载（ mount）命名空间的副本（从 2.4.19 版本开 始） |
+| CLONE_NEWPID        | 子进程获得新的进程 ID 命名空间（从 2.6.23 版本开始）         |
+| CLONE_NEWUSER       | 子进程获得新的用户 ID 命名空间（从 2.6.23 版本开始）         |
+| CLONE_NEWUTS        | 子进程获得新的 UTS（ utsname()）命名空间（从 2.6.19 版本开始） |
+| CLONE_PARENT        | 将子进程的父进程置为调用者的父进程（从 2.4 版本开始）        |
+| CLONE_PARENT_SETTID | 将子进程的线程 ID 写入 ptid，保证在 clone()返回之前就将新线程的 ID 赋值给 ptid 指针，从而使线程库避免了竞争条件（从 2.6 版本开始） |
+| CLONE_PID           | 标志已废止，仅用于系统启动进程（直至 2.4 版本为止）          |
+| CLONE_PTRACE        | 如果正在跟踪父进程，那么子进程也照此办理                     |
+| CLONE_SETTLS        | tls 描述子进程的线程本地存储（从 2.6 开始）                  |
+| CLONE_SIGHAND       | 父、子进程共享对信号的处置设置                               |
+| CLONE_SYSVSEM       | 父、子进程共享信号量还原（ undo）值（从 2.6 版本开始）       |
+| CLONE_THREAD        | 将子进程置于父进程所属的线程组中（从 2.4 开始）              |
+| CLONE_UNTRACED      | 不强制对子进程设置 CLONE_PTRACE（从 2.6 版本开始）           |
+| CLONE_VFORK         | 挂起父进程直至子进程调用 exec() 或_exit()                    |
+| CLONE_VM            | 父、子进程共享虚拟内存                                       |
+
+POSIX 规定，所有的线程共享同一 PID，threads group 共享同一线程组标识（TGID, thread group identifier） 的一组 kernel scheduling entity（KSE），TGID 和 PID 是一回事  
+
+一个线程组内的每个线程都拥有一个唯一的线程标识符（ thread identifier， TID），用以标识自身(可以使用 `gettid()` 获取，TID 和 PID 都用类型 `pid_t` 表示)    
+
+线程组中首个线程的线程 ID 与其线程组 ID 相同，也将该线程称之为线程组的首进程（thread group leader）  
+
+线程组中的所有线程拥有同一父进程 ID，即与线程组首线程 ID 相同。仅当线程组中的所有线程都终止后， 其父进程才会收到 SIGCHLD 信号  
+
+所以不能使用 `wait()` 等待，必须调用 `pthread_join()` 来等待。为检测以 CLONE_THREAD 标志创建的线程是否终止，需要使用一种特殊的同步原语 futex  
+
+如果一个线程组中的任一线程调用了 `exec()`，那么除了首线程之外的其他线程都会终止，新进程将在首进程中执行  
+
+如果线程组中的某个线程调用 `fork()` 或 `vfork()` 创建了子进程， 那么组中的任何线程都可使用 `wait()` 或类似函数来监控该子进程  
+
+从 Linux2.6 开始，如果设置了 CLONE_THREAD，同时也必须设置 CLONE_SIGHAND  
+
+
+因为 `clone` 生成的子进程，Linux 对 `waitpid` 进行扩展  
+
+options 参数添加了：
+
+- `__WCLONE`：只会等待 clone 产生的子进程
+- `__WALL`：等待所有子进程
+- `__WNOTHREAD`：只能等待自己的子进程  
+
+
+
+## 3. exec 和 fork 对进程属性的影响
+
+|       进程属性       |     exec()      |   fork()    |                   影响属性的接口；额外说明                   |
+| :------------------: | :-------------: | :---------: | :----------------------------------------------------------: |
+|   **进程地址空间**   |                 |             |                                                              |
+|        文本段        |       否        |    共享     |                   子进程与父进程共享文本段                   |
+|         栈段         |       否        |     是      |     函数入口/出口； alloca()、 longjmp()、 siglongjmp()      |
+|     数据段和堆段     |       否        |     是      |                        brk()、 sbrk()                        |
+|       环境变量       |     见注释      |     是      | putenv()、 setenv()；直接修改 environ。 execle() 和 execve() 会对其改写，其他 exec() 调用则会加以保护 |
+|       内存映射       |       否        | 是；见 注释 | mmap()、 munmap()。跨越 fork() 进程，映射的 MAP_NORES ERVE 标志得以继承。 带有 madvise（MADV_ DONTFORK） 标志的映射则不会跨 fork() 继承 |
+|        内存锁        |       否        |     否      |                     mlock()、 munlock()                      |
+| **进程标识符和凭证** |                 |             |                                                              |
+|       进程 ID        |       是        |     否      |                                                              |
+|      父进程 ID       |       是        |     否      |                                                              |
+|      进程组 ID       |       是        |     是      |                          setpgid()                           |
+|       会话 ID        |       是        |     是      |                           setsid()                           |
+|       实际 ID        |       是        |     是      |              setuid()、 setgid()，以及相关调用               |
+| EID 和 Saved Set ID |     见注释      |     是      | ch09 |
+|      补充组 ID       |       是        |     是      |                  setgroups()、 initgroups()                  |
+|       **文件**       |                 |             |                                                              |
+|    打开文件描述符    |     见注释      |     是      | open()、 close()、 dup()、 pipe()、 socket() 等。文件描述符在跨越 exec() 调用的过程中得以保存， 除非对其设置了 close-on-exec 标志。父、子进程中的描述符指向相同的打开文件描述 |
+|    close-on-exec     | 是（如果 关闭） |     是      |                      fcntl(F_SETFD)                      |
+|       文件偏移       |       是        |    共用     | lseek()、 read()、 write()、 readv()、 writev()。父、子进程共享文件偏移 |
+|   打开文件状态标志   |       是        |    共用     |   open()、 fcntl(F_SETFL)。父、子进程共享打开文件状态 标志   |
+|       **文件系统**       |                 |             |                                                              |
+|     当前工作目录     |       是        |     是      |                           chdir()                            |
+|        根目录        |       是        |     是      |                           chroot()                           |
+|   文件模式创建掩码   |       是        |     是      |                           umask()                            |
+|         **信号**         |                 |             |                             信号                             |
+| 信号处置                  | 见注释 | 是     | signal()、 sigaction()。将处置设置成默认或忽略的信号在 执行 exec()期间保持不变； 已捕获的信号会恢复为默认处 置。ch27.5 |
+| 信号掩码                  | 是     | 是     | 信号传递； sigprocmask()、 sigaction()                       |
+| pending 信号集合 | 是     | 否     | 信号传递； raise()、 kill()、 sigqueue()                     |
+| 备选信号栈                | 否     | 是     | sigaltstack()                                                |
+| **定时器**                |        |        |                                                              |
+| 间隔定时器                | 是     | 否     | setitimer()                                                  |
+| 由 alarm()设置的定时器    | 是     | 否     | alarm()                                                      |
+| POSIX 定时器              | 否     | 否     | timer_create() 及其相关调用                                  |
+| POSIX 线程                |        |        |                                                              |
+| **线程**                  | 否     | 见注释 | fork() 调用期间，子进程只会复制调用线程                      |
+| 线程可撤销状态与类型      | 否     | 是     | exec() 之后，将可撤销类型和状态分别重置为 PTHREAD_ CANCEL_ENABLE 和 PTHREAD_CANCEL_DEFERRED |
+| 互斥量与条件变量          | 否     | 是     | ch33.3 |
+| **优先级与调度**          |        |        |                                                              |
+| nice 值                   | 是     | 是     | nice()、setpriority()                                       |
+| 调度策略及优先级          | 是     | 是     | sched_setscheduler()、sched_setparam()                      |
+| **资源与 CPU 时间**       |        |        |                                                              |
+| 资源限制                  | 是     | 是     | setrlimit()                                                  |
+| 进程和子进程的 CPU 时间   | 是     | 否     | 由 times() 返回                                              |
+| 资源使用量                | 是     | 否     | 由 getrusage() 返回                                          |
+| **进程间通信**                |        |        |                                                              |
+| System V 共享内存段           | 否     | 是     | shmat()、 shmdt()                                            |
+| POSIX 共享内存                | 否     | 是     | shm_open() 及其相关调用                                      |
+| POSIX 消息队列                | 否     | 是     | mq_open() 及其相关调用。父、子进程的描述符都指向同 一打开消息队列描述。子进程并不继承父进程的消息通 知注册信息 |
+| POSIX 命名信号量              | 否     | 共用   | sem_open() 及其相关调用。 子进程与父进程共享对相同信 号量的引用 |
+| POSIX 未命名信号量            | 否     | 见注释 | sem_init() 及其相关调用。如果信号量位于共享内存区域， 那么子进程与父进程共享信号量；否则，子进程拥有属于 自己的信号量拷贝 |
+| System V 信号量调整           | 是     | 否     |                                                  |
+| 文件锁                        | 是     | 见注释 | flock()。子进程自父进程处继承对同一锁的引用                  |
+| 记录锁                        | 见注释 | 否     | fcntl(F_SETLK)。除非将指代文件的文件描述符标记为执行时关闭，否则会跨越 exec() 对锁加以保护 |
+| **杂项**                      |        |        |                                                              |
+| 地区设置                      | 否     | 是     | setlocale()。作为 C 运行时初始化的一部分，执行新程序 后会调用 `setlocale(LC_ALL， "C")` 的等效函数 |
+| 浮点环境                      | 否     | 是     | 运行新程序时， 将浮点环境状态重置为默认值， 参考 fenv(3)     |
+| 控制终端                      | 是     | 是     |                                                              |
+| 退出处理器程序                | 否     | 是     | atexit()、 on_exit()                                         |
+| **Linux 特有**                |        |        |                                                              |
+| 文件系统 ID                   | 见注释 | 是     | setfsuid()、 setfsgid()。一旦相应的有效 ID 发生变化，那 么这些 ID 也会随之改变 |
+| timeerfd 定时器               | 是     | 见注释 | timerfd_create()，子进程继承的文件描述符与父进程指向 相同的定时器 |
+| capacity                 | 见注释 | 是     | capset()。执行 exec() 期间对能力的处理见 ch39.5 |
+| 功能外延集合                  | 是     | 是     |                                                              |
+| securebits 标志 | 见注释 | 是     | 执行 exec() 期间，会保全所有的安全位标志， SECBIT_KEEP_CAPS 除外，总是会清除该标志 |
+| CPU 黏性（ affinity）         | 是     | 是     | sched_setaffinity()                                          |
+| SCHED_RESET_ON_ FORK          | 是     | 否     | 参考 ch35.3                                       |
+| 允许的 CPU                    | 是     | 是     | 参考 cpuset(7)                                         |
+| 允许的内存节点                | 是     | 是     | 参考 cpuset(7)                                         |
+| 内存策略                      | 是     | 是     | 参考 set_mempolicy(2)                                  |
+| 文件租约                      | 是     | 见注释 | `fcntl(F_SETLEASE)`。子进程从父进程处继承对相同租约的引用 |
+| 目录变更通知                | 是     | 否     | dnotify API，通过 fcntl(F_NOTIFY) 来实现支持         |
+| prctl(PR_SET_DUMP ABLE) | 见注释 | 是     | exec() 组执行期间会设置 PR_SET_DUMPABLE 标志，设置用户或组 ID 程序的情况除外，此时将清除该标志 |
+| prctl(PR_SET_PDEAT HSIG) | 是     | 否     |                                                              |
+| prctl(PR_SET_NAME)      | 否     | 是     |                                                              |
+| oom_adj                     | 是     | 是     | ch49.9                                         |
+| coredump_filter             | 是     | 是     | ch22.1                                            |
+
+
+
