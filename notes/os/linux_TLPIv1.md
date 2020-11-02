@@ -1,4 +1,4 @@
-# Linux/UNIX 系统编程手册
+# Linux/UNIX 系统编程手册 上
 
 # 一、历史和标准  
 
@@ -6224,7 +6224,112 @@ int pthread_getspecific(pthread_key_t key);
 
 ## 4. 线程局部数据
 
-线程局部存储的主要优点在于，比线程特有数据的使用要简单。要创建线程局部变量，只需简单地在全局或静态变量的声明中包含 `__thread` 说明符即可  
+线程局部(thread local)存储的主要优点在于，比线程特有数据的使用要简单。要创建线程局部变量，只需简单地在全局或静态变量的声明中包含 `__thread` 说明符即可  
 
 线程局部存储中的变量将一直存在，直至线程终止，届时会自动释放这一存储。  
 
+
+
+# 三十二、线程取消
+
+有时需要将一个线程取消(cancel)。向线程发送一个请求，要求其立即退出。比如用户点击了取消，然后需要把后台线程退出  
+
+## 1. 取消线程
+
+```c
+#include <pthread.h>
+
+int pthread_cancel(pthread_t thread);
+// return 0 on success or a positive error number on error
+```
+
+发出取消请求后，函数 `pthread_cancel()` 立即返回，不会等待目标线程的退出  
+
+
+
+## 2. 取消状态及类型
+
+```c
+#include <pthread.h>
+
+int pthread_setcancelstate(int state, int *oldstate);
+int pthread_setcanceltype(int type, int *oldtype);
+// return 0 on success or a positive error number on error
+```
+
+状态：
+
+- `PTHREAD_CANCEL_DISABLE`：如果此类线程收到取消请求，则会将请求挂起，直至将线程的取消状态
+  置为启用  
+- `PTHREAD_CANCEL_ENABLE`：新建线程取消性状态的默认值  
+
+类型：
+
+- `PTHREAD_CANCEL_ASYNCHRONOUS`：异步取消，可能会在任何时间点取消
+- `PTHREAD_CANCEL_DEFERED`：取消请求保持挂起状态，直至到达 cancellation point
+
+
+
+## 3. 取消点
+
+取消点即是对由实现定义的一组函数之一加以调用。  
+
+以下函数是规定必须是取消点的函数  
+
+```c
+accept() aio_suspend() clock_nanosleep() close() connect() creat() fcntl(F_SETLKW)
+fsync() fdatasync() getmsg() getpmsg() lockf(F_LOCK) mq_receive() mq_send()
+mq_timedreceive() mq_timedsend() msgrcv() msgsnd() msync() nanosleep() open()
+pause() poll() pread() pselect() pthread_cond_timedwait() pthread_cond_wait()
+pthread_join() pthread_testcancel() putmsg() putpmsg() pwrite() read() readv()
+recv() recvfrom() recvmsg() select() sem_timedwait() sem_wait() send() sendmsg()
+sendto() sigpause() sigsuspend() sigtimedwait() sigwait() sigwaitinfo() sleep()
+system() tcdrain() usleep() wait() waitid() waitpid() write() writev()
+```
+
+线程一旦收到取消请求，且启用了取消性状态并将类型置为延迟，则其会在下次抵达取消点时终止  
+
+如果该线程尚未分离，那么为防止其变为僵尸线程，必须由其他线程对其进行 join。join 之后，返回至函数 `pthread_join()` 中第二个参数的将是一个特殊值：`PTHREAD_CANCELED`  
+
+
+
+## 4. 可取消性检测
+
+```c
+#include <pthread.h>
+
+void pthread_testcancel(void);
+```
+
+函数 `pthread_testcancel()` 的目的很简单，就是产生一个取消点。线程如果已有处于挂起状态的取消请求，那么只要调用该函数，线程就会随之终止  
+
+
+
+## 5. 清理函数
+
+当线程取消时，可能会因为共享变量以及 pthread 对象置于不一致的状态，造成错误  
+
+可以注册一个或多个清理函数，当线程取消时，自动执行  
+
+```c
+#include <pthread.h>
+
+void pthread_cleanup_push(void (*routine)(void *), void *arg);
+void pthread_cleanup_pop(int execute);
+```
+
+每个线程都可以拥有一个清理函数栈。当线程遭取消时，会沿该栈自顶向下依次执行清理函数，首先会执行最近设置的函数  
+
+如果 `execute` 非零，无论如何都会执行栈顶的清理函数  
+
+为便于编码，若线程因调用 `pthread_exit()` 而终止，则也会自动执行尚未从清理函数栈中弹出的清理函数。线程正常返回（return）时不会执行清理函数  
+
+
+
+## 6. 异步取消
+
+异步取消可以在任何时点将其取消，取消动作不会拖延到下一个取消点才执行  
+
+异步取消的问题在于，尽管清理函数依然会得以执行，但处理函数却无从得知线程的具体状态  
+
+作为一般性原则，可异步取消的线程不应该分配任何资源，也不能获取互斥量或锁。  
