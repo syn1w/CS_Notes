@@ -6162,3 +6162,69 @@ int pthread_cond_destroy(pthread_cond_t *cond);
 
 
 
+# 三十一、线程安全
+
+## 1. 再论可重入
+
+若函数可同时供多个线程安全调用，则称之为线程安全函数；反之，如果函数不是线程安全的  
+
+可重入函数则无需使用互斥量即可实现线程安全。其要诀在于避免对全局和静态变量的使用。  
+
+并非所有函数都可以实现为可重入，因为有些函数必须使用全局数据结构或者接口本身就定义为不可重入  
+
+SUSv3 定义了一些以 `_r` 为结尾的可重入函数  
+
+
+
+## 2. once
+
+多线程程序有时有这样的需求：不管创建了多少线程，有些初始化动作只能发生一次  
+
+可以通过使用 `pthread_once` 来实现这一需求  
+
+```c
+#include <pthread.h>
+
+int pthread_once(pthread_once_t *once_control, void (*init)(void));
+// return 0 on success or a positive error number on error
+```
+
+静态初始化 `pthread_once_t` 类型的变量  
+
+```c
+pthread_once_t once_var = PTHREAD_ONCE_INIT;
+```
+
+
+
+## 3. 线程特有数据
+
+线程特有数据使函数得以为每个调用线程分别维护一份变量的副本  
+
+使用线程数据，一般步骤如下：
+
+- 创建一个 key，用以将不同函数使用的线程特有数据项区分开来，可以使用 `pthread_once()` 来创建此 key，key 在创建时并未分配任何线程特有数据
+- 为每个调用者线程创建线程特有数据块。这一分配通过调用 malloc()  之类函数完成，每个线程分配一次
+- 之后可以使用 `pthread_setspecific()` 来保存分配块的地址，`pthread_getspecific()` 来获取之前保存的与给定 key 以及调用进程相关联的指针  
+
+线程特有数据的 API  
+
+```c
+#include <pthread.h>
+
+int pthread_key_create(pthread_key_t key, void (*destructor)(void *));
+// return 0 on success or a positive error number on error
+
+int pthread_setspecific(pthread_key_t key, const void *value);
+int pthread_getspecific(pthread_key_t key);
+// return pointer or NULL if no thread-specific data isassociated with key
+```
+
+
+
+## 4. 线程局部数据
+
+线程局部存储的主要优点在于，比线程特有数据的使用要简单。要创建线程局部变量，只需简单地在全局或静态变量的声明中包含 `__thread` 说明符即可  
+
+线程局部存储中的变量将一直存在，直至线程终止，届时会自动释放这一存储。  
+
