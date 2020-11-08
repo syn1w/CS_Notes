@@ -211,3 +211,83 @@ int CPU_ISSET(int cpu, cpu_set_t *set);
 
 
 
+# 三十六、进程资源
+
+## 1. 资源统计
+
+```c
+#include <sys/resource.h>
+
+struct rusage {
+    struct timeval ru_utime; /* user CPU time used */
+    struct timeval ru_stime; /* system CPU time used */
+    long   ru_maxrss;        /* maximum resident set size */
+    long   ru_ixrss;         /* integral shared memory size */
+    long   ru_idrss;         /* integral unshared data size */
+    long   ru_isrss;         /* integral unshared stack size */
+    long   ru_minflt;        /* page reclaims (soft page faults) */
+    long   ru_majflt;        /* page faults (hard page faults) */
+    long   ru_nswap;         /* swaps */
+    long   ru_inblock;       /* block input operations */
+    long   ru_oublock;       /* block output operations */
+    long   ru_msgsnd;        /* IPC messages sent */
+    long   ru_msgrcv;        /* IPC messages received */
+    long   ru_nsignals;      /* signals received */
+    long   ru_nvcsw;         /* voluntary context switches */
+    long   ru_nivcsw;        /* involuntary context switches */
+};
+int getrusage(int who, struct rusage *res_usage);
+// return 0 on success or -1 on error
+```
+
+参数 `who`：
+
+- `RUSAGE_SELF`：返回调用进程相关的信息
+- `RUSAGE_CHILDREN`：返回调用进程所有被终止和处于等待状态的子进程相关信息
+- `RUSAGE_THREAD`：Linux 特有，返回线程相关信息
+
+
+
+## 2. 进程资源限制
+
+使用 shell 的内置命令 `ulimit` 可以设置 shell 的资源限制  
+
+`getrlimit()` 和 `setrlimit()` 系统调用允许一个进程读取和修改自己的资源限制  
+
+```c
+#include <sys/resource.h>
+
+struct rlimit {
+    rlim_t rlim_cur;  // soft limit
+    rlim_t rlim_max;  // hard limit
+};
+
+int getrlimit(int resource, struct rlimit *rlim);
+int setrlimit(int resource, const struct rlimit *rlim);
+// return 0 on success or -1 on error
+```
+
+`rlim_cur` 和 `rlim_max` 为 `RLIM_INFINITY` 表示没有限制  
+
+参数 `resource`：
+
+|      resource       |                    限制                     |
+| :-----------------: | :-----------------------------------------: |
+|     `RLIMIT_AS`     |       进程虚拟内存限制大小（字节数）        |
+|    `RLIMIT_CORE`    |           core 文件大小（字节数）           |
+|    `RLIMIT_CPU`     |              CPU 时间（秒数）               |
+|    `RLIMIT_DATA`    |            进程数据段（字节数）             |
+|   `RLIMIT_FSIZE`    |             文件大小（字节数）              |
+|  `RLIMIT_MEMLOCK`   |            锁住的内存（字节数）             |
+|  `RLIMIT_MSGQUEUE`  | 为真实用户 ID 分配的 POSIX 消息队列的字节数 |
+|    `RLIMIT_NICE`    |                   nice 值                   |
+|   `RLIMIT_NOFILE`   |          最大的文件描述符数量加 1           |
+|   `RLIMIT_NPROC`    |          真实用户 ID 下的进程数量           |
+|    `RLIMIT_RSS`     |       驻留集大小（字节数；没有实现）        |
+|   `RLIMIT_RTPRIO`   |                实时调度策略                 |
+|   `RLIMIT_RTTIME`   |            实时 CPU 时间（微秒）            |
+| `RLIMIT_SIGPENDING` |       真实用户 ID 信号队列中的信号数        |
+|   `RLIMIT_STACK`    |            栈段的大小（字节数）             |
+
+
+
