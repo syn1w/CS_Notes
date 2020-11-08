@@ -126,3 +126,88 @@ int tcsetpgrp(int fd, pid_t pgid);
 - 控制进程通常是一个 shell。 shell 建立了一个 `SIGHUP` 信号的处理器，这样在进程终止之前，它能够将 `SIGHUP` 信号发送给由它所创建的各个任务  
 - 在终止终端的控制进程时，内核会解除会话中所有进程与该控制终端之间的关联关系以及控制终端与该会话的关联关系，并且通过向该终端的前台进程组的成员发送 `SIGHUP` 信号来通知它们控制终端的丢失  
 
+
+
+# 三十五、进程优先级和调度
+
+## 1. 进程优先级
+
+Linux 与大多数其他 UNIX 实现一样，调度进程使用 CPU 的默认模型是循环时间共享。在这种模型中，每个进程轮流使用 CPU 一段时间，这段时间被称为时间片  
+
+进程特性 nice 值（优先级）允许进程间接地影响内核的调度算法。每个进程都拥有一个 nice 值，其取值范围为 -20（高优先级）到 19（低优先级），默认值为 0  
+
+非特权进程只能降低自己的优先级，这样做之后它们就对其他进程 "友好(nice)"了  
+
+nice 值是一个权重因素，它导致内核调度器倾向于调度拥有高优先级的进程。  
+
+```c
+#include <sys/resource.h>
+
+int getpriority(int which, id_t who);
+// return nice value os specified process on success or -1 on error
+int setpriority(int which, id_t who, int prio);
+// return 0 on success or -1 on error
+```
+
+参数 `which`：
+
+- `PRIO_PROCESS`：操作 `PID` 为 who 的进程，如果 who 为 0，那么使用调用者的进程
+- `PRIO_PGRP`：操作进程组 ID 为 who 的进程组中的所有成员，如果 who 为 0，那么为调用者的进程组
+- `PRIO_USER`：操作所有真实用户 ID 为 who 的进程，如果 who 为 0，那么使用调用者的真实用户 ID
+
+试图将 nice 值设置为一个超出允许范围的值 `[-20, 19]` 时会直接将 nice 值设置为边界值  
+
+
+
+## 2. 实时进程调度
+
+标准的内核调度算法一般能够为这些进程提供足够的性能和响应度。但实时应用对调度器有更加严格的要求  
+
+有对实时的调度进行支持，但是没有达到硬实时的要求，实时调度需要再进行讨论  
+
+
+
+## 3. 实时进程调用 API
+
+Linux 实时和和非实时的调度策略：  
+
+实时：
+
+- `SCHED_FIFO`：实时先入先出
+- `SCHED_RR`：实时循环
+
+非实时：
+
+- `SCHED_OTHER`：标准的时间片
+- `SCHED_BATCH`：与 `SCHED_OTHER` 类似，用于批量执行
+- `SCHED_IDLE`：与 `SCHED_OTHER` 类似，但优先级比最大的 nice 值(+19) 还要低
+
+其他同上节，之后需要再讨论
+
+
+
+## 4. affinity
+
+进程切换 CPU 时对性能会有一定的影响：如果在原来的 CPU 的高速缓冲器中存在进程的数据，那么为了将进程的一行数据加载进新 CPU 的高速缓冲器中，首先必须使这行数据失效  
+
+Linux（ 2.6）内核尝试了给进程保证软 CPU affinity(亲和力)—在条件允许的情况下进程重新被调度到原来的 CPU 上运行  
+
+```c
+#include <sched.h>
+
+int sched_setaffinity(pid_t pid, size_t len, cpu_set_t* set);
+int sched_getaffinity(pid_t pid, size_t len, cpu_set_t* set);
+// reutrn 0 on success or -1 on error
+
+void CPU_ZERO(cpu_set *set);
+void CPU_SET(int cpu, cpu_set_t *set);
+void CPU_CLR(int cpu, cpu_set_t *set);
+
+int CPU_ISSET(int cpu, cpu_set_t *set);
+// return 1 if cpu is set, or 0 otherwise
+```
+
+`<sched.h>` 头文件定义了常量 `CPU_SETSIZE`，通常为 1024，`len` 为指定 set 参数中的字节数，即为 `sizeof(cpu_set_t)` 
+
+
+
