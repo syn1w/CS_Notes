@@ -291,3 +291,79 @@ int setrlimit(int resource, const struct rlimit *rlim);
 
 
 
+# 三十七、守护进程
+
+## 1. 概述
+
+守护进程(daemon) 特征：
+
+- 它的生命周期很长。通常，一个 daemon 会在系统启动的时候被创建并一直运行直至系统被关闭  
+- 它在后台运行并且不拥有控制终端。  
+
+daemon 是用来执行特殊任务的，比如 `cron` 在规定时间执行命令、`sshd` 允许远程主机使用 ssh 登录等等  
+
+
+
+## 2. 创建守护进程
+
+执行一个 `fork()`，之后父进程退出，子进程继续执行。
+
+子进程调用 `setsid()` 开启一个新会话并释放它与之前控制终端之间的所有关联关系  
+
+如果 daemon 后面可能会打开一个终端设备，那么必须要采取措施来确保这个设备不会成为控制终端，在所有可能应用到一个终端设备上的 `open()` 调用中指定 `O_NOCTTY` 标记或者在 `setsid()` 调用之后执行第二个 `fork()`，然后再次让父进程退出并让孙子进程继续执行。 这样就确保了子进程不会成为会话组长  
+
+清除进程的 `umask` 以确保当 daemon 创建文件和目录时拥有所需的权限  
+
+修改进程的当前工作目录，通常会改为根目录 `/`。  
+
+关闭 daemon 从其父进程继承而来的所有打开着的文件描述符  
+
+在关闭了文件描述符 0、 1 和 2 之后， daemon 通常会打开 `/dev/null` 并使用 `dup2()` 使所有这些描述符指向这个设备。  
+
+实际可以使用 `becomeDaemon()` 函数将调用者变为 daemon  
+
+```c
+#include <syslog.h>
+
+#define BD_NO_CHDIR 01          // Don't chdir("/")
+#define BD_NO_CLOSE_FILES 02    // Don't close all open files
+#define BD_NO_REOPEN_STD_FDS 04 // Don't reopen stdin, stdout and stderr to /dev/null
+#define BD_NO_UMASKO 010        // Don't do a umask(0)
+#define BD_MAX_CLOSE 8192       // Maximum file descriptors to close if 
+                                // sysconf(_SC_OPEN_MAX) is indeterminate
+
+
+int becomeDaemon(int flags);
+// return 0 on success or -1 on error
+```
+
+
+
+## 3. 编写 daemon
+
+很多标准的 daemon 是通过在系统关闭时执行特定于应用程序的脚本来停止的。而那些不以这种方式终止的
+daemon 会收到一个 `SIGTERM` 信号。如果 daemon 在终止之前需要做些清理工作，那么就需要为这个信号建立一个处理函数。而且 `init` 进程在发完 `SIGTERM` 信号的 5 秒之后会发送一个 `SIGKILL` 信号  
+
+由于 daemon 是长时间运行的，因此要特别小心潜在的内存泄露问题  
+
+
+
+## 4. 重新初始化 daemon
+
+daemon 需要持续运行，因此在设计 daemon 程序时需要克服一些障碍：
+
+- 通常 daemon 会在启动时从相关的配置文件中读取操作参数，但有些时候需要在不重启 daemon 的情况下快速修改这些参数  
+- 一些 daemon 会产生日志文件。如果 daemon 永远不关闭日志文件的话，那么日志文件就会无限制地增长，最终会阻塞文件系统  
+
+解决这两个问题的方案是让 daemon 为 `SIGHUP` 建立一个处理器， 并在收到这个信号时采取所需的措施  
+
+
+
+## 5. `syslog`
+
+在编写 daemon 时碰到的一个问题是如何显示错误消息  
+
+`syslog` 需要再进行讨论，暂跳过  
+
+
+
