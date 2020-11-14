@@ -617,3 +617,239 @@ void func() {
 
 如果想要确保在共享库中对 `xyz()` 的调用确实调用了库中定义的相应函数，那么在构建共享库的时候就需要使用 `–Bsymbolic` 链接器选项  
 
+
+
+# 四十二、动态库高级特性
+
+## 1. 加载动态库
+
+当一个可执行文件开始运行之后，动态链接器会加载程序的动态依赖列表中的所有动态库，但有些时候延迟加载库是比较有用的，如只在需要的时候再加载一个插件。动态链接器的这项功能是通过一组 API 来实现的。这组 API 通常被称为 `dlopen` API  
+
+`dlopen` API 使得程序能够在运行时打开一个共享库，根据名字在库中搜索一个函数，然后调用这个函数。在运行时采用这种方式加载的共享库通常被称为动态加载的库，它的创建方式与其他共享库的创建方式完全一样  
+
+```c
+#include <dlfcn.h>
+
+void *dlopen(const char *libfilename, int flags);
+// return library handle on success or NULL on error
+```
+
+如果 `libfilename` 指定的共享库依赖于其他共享库，那么 `dlopen()` 会自动加载那些库。  
+
+同一个库文件中可以多次调用 `dlopen()`，但将库加载进内存的操作只会发生一次， 所有的调用都返回同样的句柄值。使用引用计数来维护库资源   
+
+`flags`：
+
+- `RTLD_LAZY`：只有当代码被执行的时候才解析库中未定义的函数符号。延迟解析只适用于函数引用，对变量的引用会被立即解析。  
+- `RTLD_NOW`：在 `dlopen()` 结束之前立即加载库中所有的未定义符号，不管是否需要用到这些符号，这种做法的结果是打开库变得更慢了，但能够立即检测到任何潜在的未定义函数符号错误，而不是在后面某个时刻才检测到这种错误。  
+- `RTLD_GLOBAL`：这个库及其依赖树中的符号在解析由这个进程加载的其他库中的引用和通过 `dlsym()` 查找时可用
+- `RTLD_LOCAL`，大多数实现该项为默认值，它规定在解析后续加载的库中的引用时这个库及其依赖树中的符号不可用  
+- `RTLD_NODELETE`：在 `dlclose()` 调用中不要卸载库，即使其引用计数已经变成 0 了。这意味着在后面重新通过 `dlopen()` 加载库时不会重新初始化库中的静态变量  
+- `RTLD_NOLOAD`：不加载库。可以使用这个标记来检查某个特定的库是否已经被加载到了进程的地址空间中。如果已经加载了，那么 `dlopen()` 会返回库的句柄，如果没有加载，那么 `dlopen()` 会返回 `NULL`。第二，可以使用这个标记来更新已加载的库的标记  
+- `RTLD_DEEPBIND`：在解析这个库中的符号引用时先搜索库中的定义，然后再搜索已加载的库中的定义。这个标记使得一个库能够实现自包含，即优先使用自己的符号定义，而不是在已加载的其他库中定义的同名全局符号(类似于 `-Bsymbolic` )
+
+
+
+```c
+#include <dlfcn.h>
+
+const char *dlerror(void);
+// return pointer to error-diagnostic or NULL if 
+// no error has occurred since previous call to dlerror
+```
+
+```c
+#include <dlfcn.h>
+
+void *dlsym(void *handle, char *symbol);
+// return address of symbol or NULL if symbol is not found
+```
+
+handle 参数还可以使用以下的参数：
+
+- `RTLD_DEFAULT`：从主程序中开始查找 symbol，接着按序在所有已加载的共享库中查找，包括那些通过使用了 `RTLD_GLOBAL` 标记的 `dlopen()` 调用动态加载的库，这个标记对应于动态链接器所采用的默认搜索模型  
+- `RTLD_NEXT`：在调用 `dlsym()` 之后加载的共享库中搜索 symbol，这个标记适用于需要创建与在其他地方定义的函数同名的包装函数的情况  
+
+
+
+```c
+#include <dlfcn.h>
+
+int dlclose(void *handle);
+// return 0 on success or -1 on error
+```
+
+`dlclose()` 函数会减小 handle 所引用的库的打开引用的系统计数。如果这个引用计数变成了 0 并且其他库已经不需要用到该库中的符号了，那么就会卸载这个库  
+
+
+
+```c
+#include <dlfcn.h>
+
+typedef struct {
+    const char *dli_fname;  /* Pathname of shared object that
+                               contains address */
+    void       *dli_fbase;  /* Base address at which shared
+                               object is loaded */
+    const char *dli_sname;  /* Name of symbol whose definition
+                               overlaps addr */
+    void       *dli_saddr;  /* Exact address of symbol named
+                               in dli_sname */
+} Dl_info;
+
+int dladdr(const void *addr, Dl_info *info);
+// return nonzero value if addr was found in a shared library otherwise 0
+```
+
+
+
+## 2. 控制符号可见性
+
+设计良好的共享库应该只公开那些构成其声明的 API  
+
+下面的方法可以控制符号的 export：
+
+- `static` 声明的符号
+- GNU C 编译器提供的 `__attribute__ ((visibility("hidden")))` 属性声明
+- version-script 精确控制符号的可见性以及选择将一个引用绑定到符号的哪个版本  
+- 当动态加载一个共享库时， `dlopen()` 的 `RTLD_GLOBAL` 标记可以用来指定这个库中定义的符号应该用于后续加载的库中的绑定操作， `––export–dynamic` 链接器选项可以用来使主程序的全局符号对动态加载的库可用。  
+
+
+
+## 3. version-script
+
+version-script 是一个包含链接器 `ld` 执行的指令的文本文件。要使用必须要指定 `––version–script ` 链接器选项  
+
+```sh
+gcc -Wl,--version-script,myscriptfile.map
+```
+
+版本脚本的一个用途是控制那些可能会在无意中变成全局可见（即对与该库进行链接的应用程序可见）的符号的可见性  
+
+比如有三个编译模块 `vis_comm.c, vis_f1.c, vis_f2.c` 构建成一个动态库，这三个源文件分别定义了函数 `vis_comm()`、 `vis_f1()` 以及 `vis_f2()`。`vis_comm()` 函数由 `vis_f1()` 和 `vis_f2()` 调用，但不想被与该库进行链接的应用程序直接使用。  
+
+
+
+可以通过以下的方法来实现上面的需求：
+
+```map
+# vis.map
+VER_1 {
+	global:
+		vis_f1;
+		vis_f2;
+	local:
+		*;
+};
+```
+
+```sh
+gcc -shared -o vis.so xxx.o -Wl,--version-script,vis.map
+readelf --syms --use-dynamic vis.so | grep vis
+```
+
+
+
+符号版本化允许一个共享库提供同一个函数的多个版本  
+
+比如下面的例子  
+
+```map
+# sv_v1.map
+VER_1 {
+	global: xyz;
+	local: *;
+};
+```
+
+接着创建一个程序 `p1` 来使用这个库  
+
+现在假设需要修改库中 `xyz()` 的定义， 但同时仍然需要确保程序 pl继续使用老版本的函数。为完成这个任务，必须要在库中定义两个版本的 `xyz()`。  
+
+```c
+// lib_v2.c
+__asm__(".symver xyz_old, xyz@VER_1");
+__asm__(".symver xyz_new, xyz@@VER_2");
+
+// old xyz
+void xyz_old() {
+    // ...
+}
+
+void xyz_new() {
+    // ...
+}
+
+void foo() {
+    // ...
+}
+```
+
+第二个 `.symver` 指令使用 `@@`（不是@）来指示当应用程序与这个共享库进行静态链接时应该使用的 `xyz()` 的默认定义。一个符号的 `.symver` 指令中应该只有一个指令使用 `@@` 标记。  
+
+```map
+# v2.map
+VER_1 {
+	global: xyz;
+	local: *;
+};
+
+VER_2 {
+	global foo;
+} VER_1;
+```
+
+新版本标签 `VER_2`，它依赖于标签 `VER_1`  
+
+Linux 上的版本标签依赖的唯一效果是版本节点可以从它所依赖的版本节点中继承 global 和 local 规范  
+
+
+
+## 4. 初始化和终止函数
+
+在动态库加载和卸载时自动执行的初始化和终止函数  
+
+```c
+void __attribute__ ((constructor)) some_load(void) {
+    // ...
+}
+
+void __attribute__ ((destructor)) some_unload(void) {
+    // ...
+}
+```
+
+
+
+## 5. 预加载动态库
+
+出于测试的目的，有些时候可以有选择地（因为查找动态库的顺序）覆盖一些正常情况下会被动态链接器找出的函数（或其他符号） 。要完成这个任务可以定义一个环境变量 `LD_PRELOAD`，其值由在加载其他共享库之前需加载的共享库名称构成  
+
+由于首先会加载这些共享库，因此可执行文件自动会使用这些库中定义的函数，从而覆盖那些动态链接器在其他情况下会搜索的同名函数  
+
+出于安全原因，Set ID 的程序忽略了 `LD_PRELOAD`  
+
+
+
+## 6. `LD_DEBUG`
+
+有些时候需要监控动态链接器的操作以弄清楚它在搜索哪些库，这可以通过 `LD_DEBUG` 环境变量来完成。通过将这个变量设置为一个（或多个）标准关键词可以从动态链接器中得到各种跟踪信息  
+
+具体的值如下  
+
+```txt
+libs        display library search paths
+reloc       display relocation processing
+files       display progress for input file
+symbols     display symbol table processing
+bindings    display information about symbol binding
+versions    display version dependencies
+scopes      display scope information
+all         all previous options combined
+statistics  display relocation statistics
+unused      determined unused DSOs
+help        display this help message and exit
+```
+
+
+
