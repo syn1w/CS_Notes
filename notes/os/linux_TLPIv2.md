@@ -853,3 +853,65 @@ help        display this help message and exit
 
 
 
+# 四十三、进程间通信
+
+对 IPC 比较熟悉，该章只进行总结  
+
+## 1. 分类
+
+![IPC classify](../../imgs/linux/TLPI/43_1.png)  
+
+
+
+# 四十四、pipe 和 FIFO
+
+对 pipe 比较熟悉，FIFO 用的不太多，同样该章只进行总结  
+
+## 1. 概述
+
+pipe 是单向的，可以确保写入不超过 `PIPE_BUF` 字节(Linux 4096)的操作是原子的，pipe 的存储能力是有限的  
+
+
+
+## 2. 使用
+
+```c
+#include <unistd.h>
+
+int pipe(int fds[2]);
+// return 0 on success or -1 on error
+```
+
+`fds[1]` 写，`fds[0]` 读，一般用于父子进程  
+
+
+
+管道的一个常见用途是执行 shell 命令并读取其输出或向其发送一些输入。 `popen()` 和 `pclose()` 函数简化了这个任务。`popen()` 函数创建了一个管道，然后创建了一个子进程来执行 shell，而 shell 又创建了一个
+子进程来执行 command 字符串  
+
+```c
+#include <stdio.h>
+
+FILE *popen(const char *command, const char *mode);
+// return file stream, or NULL on error
+
+int pclose(FILE *stream);
+// return termination status of child process or -1 on error
+```
+
+`mode` 参数是 `"r"` 或 `"w"`，如果是 `r`，命令的标准输出将通过管道传入调用进程，如果是 `w`，则调用进程通过管道写入到命令的标准输入  
+
+由于 `popen()` 调用返回的文件流指针没有引用一个终端， 因此 stdio 库会对这种文件流应用块缓冲。这意味着当将 mode 的值设置为 w 来调用 `popen()` 时，在默认情况下只有当 stdio 缓冲器被充满或使用 `pclose()` 关闭了管道之后输出才会被发送到管道另一端的子进程。  
+
+如果需要确保子进程能够立即从管道中接收数据，那么就需要定期调用 `fflush()` 或使用 `setbuf(fp, NULL)` 调用禁用 stdio 缓冲  
+
+
+
+FIFO 暂时跳过
+
+
+
+
+
+
+
