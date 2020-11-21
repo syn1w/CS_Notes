@@ -1158,7 +1158,7 @@ int remap_file_pages(void *addr, size_t size, int prot, size_t pgoff, int flags)
 
 
 
-# 第五十章、虚拟内存操作
+# 五十、虚拟内存操作
 
 ## 1. 改变内存保护
 
@@ -1258,3 +1258,59 @@ int madvise(void *addr, size_t length, int advice);
 - `MADV_SEQUENTIAL`：在这个范围中的分页只会被访问一次，并且是顺序访问，因此内核可以激进地预先读，并且分页在被访问之后就可以将其释放了  
 - `MADV_WILLNEED`：预先读取这个区域中的分页以备将来的访问之需  
 - `MADV_DONTNEED`：调用进程不再要求这个区域中的分页驻留在内存中  
+
+
+
+# 五十一、POSIX IPC
+
+|    接口     |       消息队列       |              信号量              |      共享内存       |
+| :---------: | :------------------: | :------------------------------: | :-----------------: |
+|   头文件    |     `<mqueue.h>`     |         `<semaphore.h>`          |   `<sys/mman.h>`    |
+| 对象 handle |       `mqd_t`        |            `sem_t *`             |      `int fd`       |
+|  创建/打开  |      `mq_open`       |            `sem_open`            | `shm_open` + `mmap` |
+|    关闭     |      `mq_close`      |           `sem_close`            |      `munmap`       |
+|  断开链接   |     `mq_unlink`      |           `sem_unlink`           |    `shm_unlink`     |
+|  执行 IPC   | `mq_send/mq_receive` | `sem_post/sem_wait/sem_getvalue` |                     |
+|  其他操作   |     `mq_setattr`     |            `sem_init`            |                     |
+|             |     `mq_getattr`     |          `sem_destroy`           |                     |
+|             |     `mq_notify`      |                                  |                     |
+
+
+
+与 System V IPC 对比：
+
+- POSIX IPC 的接口比 System V IPC 接口简单  
+- POSIX IPC 模型——使用名字替代键、使用 open、 close 以及 unlink 函数——与传统的 UNIX 文件模型更加一致  
+- POSIX IPC 对象是引用计数的。简化了对象删除  
+- POSIX IPC 的移植性不如 System V IPC
+
+
+
+# 五十二、POSIX 消息队列
+
+POSIX 消息队列，它允许进程之间以消息的形式交换数据。 POSIX 消息队列与 System V 消息队列的相似之处在于数据的交换单位是整个消息  
+
+其他用到再来补坑  
+
+
+
+# 五十三、POSIX 信号量
+
+POSIX 信号量，它允许进程和线程同步对共享资源的访问  
+
+其他用到再来补坑  
+
+
+
+# 五十四、POSIX 共享内存
+
+POSIX 共享内存能够让无关进程共享一个映射区域而无需创建一个相应的映射文件  
+
+Linux 使用挂载于 `/dev/shm` 目录下的专用 `tmpfs` 文件系统  
+
+要使用 POSIX 共享内存对象需要完成下列任务  
+
+- 使用 `shm_open()` 函数打开一个与指定的名字对应的对象，返回一个引用该对象的文件描述符  
+- 将上一步中获得的文件描述符传入 `mmap()` 调用并在其 `flags` 参数中指定 `MAP_SHARED`  
+
+其他用到再来补坑  
