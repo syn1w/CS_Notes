@@ -1154,3 +1154,107 @@ int remap_file_pages(void *addr, size_t size, int prot, size_t pgoff, int flags)
 // reutrn 0 on success or -1 on error
 ```
 
+
+
+
+
+# 第五十章、虚拟内存操作
+
+## 1. 改变内存保护
+
+```c
+#include <sys/mman.h>
+
+int mprotect(void *addr, size_t length, int prot);
+// return 0 on success or -1 on error
+```
+
+`prot`：`PROT_NONE/PROT_READ/PROT_WRITE/PROT_EXEC`  
+
+如果一个进程在访问一块内存区域时违背了内存保护，那么内核就会向该进程发送一个`SIGSEGV` 信号  
+
+
+
+## 2. 内存锁
+
+在一些应用程序中将一个进程的虚拟内存的部分或全部锁进内存以确保它们总是位于物理内存中是非常有用的。之所以需要这样做的一个原因是它可以提高性能。对被锁住的分页的访问可以确保永远不会因为分页故障而发生延迟。  
+
+给内存加锁的另一个原因是安全。如果一个包含敏感数据的虚拟内存分页永远不会被交换出去，那么该分页的副本就不会被写入到磁盘  
+
+`RLIMIT_MEMLOCK` 为一个进程能够锁进内存的字节数设定了一个上限。Linux 2.6.9 开始，内存加锁模型发生了变化，允许非特权进程给一小段内存进行加锁  
+
+- 特权进程能够锁住的内存数量是没有限制的  
+- 非特权进程能够锁住的内存数量上限由软限制 `RLIMIT_MEMLOCK` 定义，软和硬 `RLIMIT_MEMLOCK` 限制的默认值都是 8 个分页  
+
+`mlock()/mlockall()`，`mmap` 的 `MAP_LOCKED` 标记可以在映射被创建时将内存映射锁住，`shmctl` 的 `SHM_LOCK` 操作，用来给 System V 共享内存段加锁  
+
+对于 `mlock()`、`mlockall()` 以及 `mmap() MAP_LOCKED` 操作来讲， `RLIMIT_ MEMLOCK` 定义了一个进程级别的限制， 它限制了一个进程的虚拟地址空间中能够被锁进内存的字节数  
+
+对于 `shmctl() SHM_LOCK` 操作来讲，`RLIMIT_MEMLOCK` 定义了一个用户级别的限制，它限制了这个进程的真实用户 ID 在共享内存段中能够锁住的字节数  
+
+```c
+#include <sys/mman.h>
+
+int mlock(void *addr, size_t length);
+int munlock(void *addr, size_t length);
+// return 0 on success or -1 on error
+```
+
+`mlock()` 系统调用会锁住调用进程的虚拟地址空间中起始地址为 `addr` 长度为 `length` 字节的区域中的所有分页。内核会从 `addr` 下面的下一个分页边界开始锁住分页，为了移植性需要是分页大小的整数倍  
+
+内存锁不会被通过 `fork()` 创建的子进程继承，也不会在 `exec()` 执行期间被保留  
+
+
+
+**给一个进程占据的所有内存加锁和解锁**  
+
+```c
+#include <sys/mman.h>
+
+int mlockall(int flags);
+int munlockall(void);
+// return 0 on success or -1 on error
+```
+
+`flags`：  
+
+- `MCL_CURRENT`：将调用进程的虚拟地址空间中当前所有映射的分页锁进内存，包括当前为程序文本段、数据段、内存映射以及栈分配的所有分页  
+- `MCL_FUTURE`：将后续映射进调用进程的虚拟地址空间的所有分页锁进内存。  
+
+
+
+## 3. 内存驻留
+
+`mincore()` 系统调用是内存加锁系统调用的补充，它报告在一个虚拟地址范围中哪些分页当前驻留在 RAM 中，因此在访问这些分页时也不会导致分页故障。  
+
+```c
+#include <sys/mman.h>
+
+int mincore(void *addr, size_t length, unsigned char *vec);
+// return 0 on success or -1 on error
+```
+
+`mincore()` 系统调用返回起始地址为 `addr` 长度为 `length` 字节的虚拟地址范围中分页的内存驻留信息。   
+
+内存驻留相关的信息会通过 `vec` 返回，它是一个数组，其大小为`(length + PAGE_SIZE – 1) / PAGE_SIZE`  
+
+  
+
+## 4. 建议后续使用的内存模式
+
+`madvise()` 系统调用通过通知内核调用进程对起始地址为 `addr` 长度为 `length` 字节的范围之内分页的可能的使用情况来提升应用程序的性能  
+
+```c
+#include <sys/mman.h>
+
+int madvise(void *addr, size_t length, int advice);
+// return 0 on success or -1 on error
+```
+
+`advice`：
+
+- `MADV_NORMAL`：默认行为。分页是以簇的形式（较小的一个系统分页大小的整数倍）传输的。这个值会导致一些预先读和事后读  
+- `MADV_RANDOM`：这个区域中的分页会被随机访问，这样预先读将不会带来任何好处，因此内核在每次读取时所取出的数据量应该尽可能少  
+- `MADV_SEQUENTIAL`：在这个范围中的分页只会被访问一次，并且是顺序访问，因此内核可以激进地预先读，并且分页在被访问之后就可以将其释放了  
+- `MADV_WILLNEED`：预先读取这个区域中的分页以备将来的访问之需  
+- `MADV_DONTNEED`：调用进程不再要求这个区域中的分页驻留在内存中  
