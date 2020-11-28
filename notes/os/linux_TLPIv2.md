@@ -1474,3 +1474,161 @@ Linux 也允许 `fcntl()` 记录锁是强制式的。这表示需对每个文件
 - 如果放置多把锁（即使用多个锁文件），那么就无法检测出死锁。如果发生了死锁，那么造成死锁的进程就会永远保持阻塞  
 - 第二版的 NFS 不支持 `O_EXCL` 语义。 Linux 2.4 NFS 客户端也没有正确地实现 `O_EXCL`，即使是第三版的 NFS 以及之后的版本也没能完成这个任务  
 
+
+
+# 五十六、socket
+
+socket 是一种 IPC 方法，它允许位于同一主机或使用网络连接起来的不同主机上的应用程序之间交换数据  
+
+## 1. 概述
+
+domain：
+
+- UNIX(`AF_UNIX, AF_LOCAL`) 允许在同一主机上的应用程序之间进行通信，地址是路径名，地址结构 `sockaddr_un`   
+- IPv4(`AF_INET`)，地址结构 `sockaddr_in`
+- IPv6(`AF_INET6`)，地址结构 `sockaddr_in6`  
+- ...
+
+
+
+socket 流和数据报区别：
+
+- 流是可靠(可以保证发送者传输的数据会完整无缺地到达接收应用程序  )的传送，数据报是不可靠的
+- 流没有保留边界，数据报有边界
+- 流是面向连接的，数据报不面向连接
+
+
+
+## 2. `socket()`
+
+```c
+#include <sys/types.h>
+#include <sys/socket.h>
+
+int socket(int domain, int type, int protocol);
+// return fd on success or -1 on error
+```
+
+`type`一般会指定为 `SOCK_STREAM`(TCP 流)、`SOCK_DGRAM`(UDP 数据报)，还可以和 `SOCK_CLOEXEC`、`SOCK_NONBLOCK` 进行按位或操作  
+
+`protocol` 一般指定为 0，在 `type` 为 `SOCK_RAW` 时会将 `protocol` 指定为 `IPPROTO_RAW`  
+
+
+
+## 3. `bind()`
+
+`bind()` 系统调用将一个 socket 绑定到一个地址上  
+
+一般来讲，会将一个服务器的 socket bind 到一个地址  
+
+```c
+#include <sys/socket.h>
+
+// 通用的 socket 地址数据结构，因为 AF_UNIX, IPv4, IPv6 的地址格式是不同的
+struct sockaddr {
+    sa_family_t sa_family;    // AF_*
+    char        sa_data[14];  // socket address
+};
+
+int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+// return 0 on success or -1 on error
+```
+
+
+
+## 4. 流 socket
+
+流 socket 类似于打电话  
+
+A，B 进程都创建 socket，A 进程（通常是服务器）调用 `bind()` 将 socket 绑定到一个地址上（电话号码），然后调用 `listen()` 通知内核表示 A 进程接收 socket 连接（类似于有一个被别人知道且已注册的电话号码）。B 进程通过 `connect()` 到 A 的地址（拨打 A 的电话号码），之后 A 会调用 `accept()` 接受 B 进程的连接（接电话），在 A，B 进程建立连接之后，A，B 进程就可以进行双向通信（`read/write` 等）  
+
+**listen**  
+
+```c
+#include <sys/socket.h>
+
+int listen(int sockfd, int backlog);
+// return 0 on success or -1 on error
+```
+
+无法在一个已连接的 socket 上执行 `listen()`  
+
+`backlog` 定义了最大未决（排队的客户端）连接的数量，一般指定 `SOMAXCONN` 常量，Linux 上为 128，开源通过 `/proc/sys/net/core/somaxconn` 来调整这个限制  
+
+
+
+**accept**  
+
+`accept()` 系统调用在文件描述符 `sockfd` 引用的监听流 socket 上接受一个接入连接。如果在调用 `accept()` 时不存在未决的连接，那么调用就会阻塞直到有连接请求到达为止  
+
+```c
+#include <sys/socket.h>
+
+int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+// return fd on success or -1 on error
+```
+
+创建一个新 socket，这个新 socket 会与执行 `connect()` 的对等 socket 进行连接  
+
+
+
+**connect**  
+
+`connect()` 系统调用将文件描述符 `sockfd` 引用的主动 socket 连接到地址通过 `addr `和 `addrlen` 指定的监听 socket 上  
+
+```c
+#include <sys/socket.h>
+
+int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+// return 0 on success or -1 on error
+```
+
+
+
+**close**  
+
+终止一个流 socket 连接的常见方式是调用 `close()`  
+
+
+
+## 5. 数据报 socket
+
+数据报 socket 类似于邮政系统  
+
+进程 A，B 使用 `socket()` 系统调用，A 程序（通常是服务器）使用 `bind()` 将其 socket 绑定到一个地址上，之后 B 进程（通常是客户端）不需要建立连接，可以直接使用 `sendto()` 到 A 绑定的地址（填好收件人地址把信件投递出去），如果要接收数据报，使用 `recvfrom()`，在没有数据时阻塞，`recvfrom()` 可以获取发送者地址  
+
+当从一个地址向另一个地址发送多个数据报时是无法保证它们按照被发送的顺序到达的，甚至还无法保证它们都能够到达。由于底层的联网协议有时候会重新传输一个数据包，因此同样的数据包可能会多次到达  
+
+```c
+#include <sys/socket.h>
+
+ssize_t recvfrom(int sockfd, void *buffer, size_t length, int flags,
+                 struct sockaddr *srcaddr, socklen_t *addrlen);
+// return number of bytes received, 0 on EOF or -1 on error
+
+ssize_t sendto(int sockfd, const void *buffer, size_t length, int flags,
+               const struct sockaddr *dstaddr, socklen_t *addrlen);
+// return number of bytes sent, or -1 on error
+```
+
+不管 `length` 的参数值是什么，`recvfrom()` 只会从一个数据报 socket 中读取一条消息。如果消息的大小超过了 `length` 字节，那么消息会被静默地截断为 `length` 字节  
+
+还可以使用 `recvmsg()` 系统调用来获取数据报  
+
+
+
+尽管数据报 socket 是无连接的，但在数据报 socket 上应用 `connect()` 系统调用仍然是起作用的。在数据报 socket 上调用 `connect()` 会导致内核记录这个 socket 的对等 socket 的地址。叫做已连接的数据报 socket  
+
+在数据报 socket 已连接后：
+
+- 数据报的发送可在 socket 上使用 `write()`（或 `send()` ）来完成并且会自动被发送到同样的对等 socket 上。与 `sendto()` 一样，每个 write()调用会发送一个独立的数据报  
+- 在这个 socket 上只能读取由对等 socket 发送的数据报  
+
+
+
+上面的论断只适用于调用了 `connect()` 数据报 socket，并不适用于它连接的远程 socket  
+
+通过再发起一个 `connect()` 调用可以修改一个已连接的数据报 socket 的对等 socket。此外，通过指定一个地址族（如 UNIX domain 中的 `sun_family` 字段）为 `AF_UNSPEC` 的地址结构还可以解除对等关联关系  
+
+为一个数据报 socket 设置一个对等 socket，这种做法的一个明显优势是在该 socket 上传输数据时可以使用更简单的 I/O 系统调用，即无需使用指定了 `dstaddr` 和 `addrlen` 参数的 `sendto()`，而只需要使用 write()即可。  
+
