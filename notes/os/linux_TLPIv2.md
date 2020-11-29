@@ -1632,3 +1632,349 @@ ssize_t sendto(int sockfd, const void *buffer, size_t length, int flags,
 
 为一个数据报 socket 设置一个对等 socket，这种做法的一个明显优势是在该 socket 上传输数据时可以使用更简单的 I/O 系统调用，即无需使用指定了 `dstaddr` 和 `addrlen` 参数的 `sendto()`，而只需要使用 write()即可。  
 
+
+
+# 五十七、UNIX Domain
+
+UNIX 域不太常用，大致介绍，其他暂时跳过  
+
+## 1. 地址表示
+
+```c
+struct sockaddr_un {
+    sa_family_t sum_family; // AF_UNIX
+    char sum_path[108];     // null-terminated socket pathname
+};
+```
+
+
+
+## 2. 流 socket
+
+
+
+## 3. 数据报 socket
+
+
+
+## 4. socket 权限
+
+
+
+## 5. `socketpair()`
+
+
+
+## 6. 抽象路径名空间
+
+
+
+
+
+# 五十八、TCP/IP 网络基础
+
+见计算机网络 notes，该章节跳过  
+
+
+
+# 五十九、Internet Domain
+
+## 1. 概述
+
+Internet domain 流 socket 是基于 TCP 之上的，它们提供了可靠的双向字节流通信信道。
+Internet domain 数据报 socket 是基于 UDP 之上的。UNIX domain 数据报 socket 是可靠的， 但 UDP socket 则是不可靠的，在一个 UNIX domain 数据报 socket 上发送数据会在接收 socket 的数据队列为满时阻塞。与之不同的是，使用 UDP 时如果进入的数据报会使接收者的队列溢出，那么数据报就会静默地被丢弃  
+
+
+
+## 2. 网络字节序
+
+因为有大端小端序，所以发送到网络的字节序需要统一，网络字节序是大端字节序  
+
+相关的转换函数：
+
+```c
+#include <arpa/inet.h>
+
+uint16_t htons(uint16_t host_uint16); // host to net short(uint16)
+uint32_t htonl(uint16_t host_uint32); // host to net long(uint32)
+
+uint16_t ntohs(uint16_t host_uint16); // net to host short(uint16)
+uint32_t ntohl(uint16_t host_uint32); // net to host long(uint32)
+```
+
+
+
+## 3. IP 地址
+
+```c
+// ipv4
+struct in_addr {
+    in_addr_t  s_addr; // uint32
+};
+
+struct sockaddr_in {
+    sa_family_t    sin_family;  // AF_INET
+    in_port_t      sin_port;
+    struct in_addr sin_addr; 
+    unsigned char  __pad[X];    // pad to size of sockaddr(16 bytes)
+};
+```
+
+
+
+```c
+// ipv6
+struct in6_addr {
+    uint8_t s6_addr[16]; // 128 bits
+};
+
+struct sockaddr_in6 {
+    sa_family_t     sin6_family; // AF_INET6
+    in_port_t       sin_port;
+    uint32_t        sin6_flowinfo;  // flow information
+    struct in6_addr sin6_addr;
+    uint32_t        sin6_scope_id;  // scope id
+};
+```
+
+IPv6 环回地址可以用 `IN6_ADDR_ANY_INIT` 来初始化  
+
+```c
+const struct in6_addr_any = IN6ADDR_ANY_INIT;
+```
+
+
+
+```c
+// storage
+#define __ss_aligntype uint32_t; // uint32 on 32-bit or uint64 on 64-bit
+
+struct sockaddr_storage {
+    sa_family_t    ss_family;
+    __sa_aligntype __ss_align;
+    char           __ss_pading[SS_PADSIZE]; // 128 bits
+};
+```
+
+
+
+
+
+## 4. 地址转换
+
+**二进制和可读形式转换(IPv4，旧 API)**  
+
+```c
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+int inet_aton(const char *cp, struct in_addr *inp);
+// returns 1 if the supplied string was successfully interpreted,
+// or 0 if the string is invalid
+
+char *inet_ntoa(struct in_addr in);
+```
+
+
+
+**二进制和可读形式转换(IPv4 和 IPv6)**  
+
+```c
+#include <arpa/inet.h>
+
+int inet_pton(int domain, const char *srcstr, void *addrptr);
+// return 1 on successful conversion, 0 if srcstr is not in 
+// presentation format, or -1 on error
+
+const char *inet_ntop(int domain, const void *addrptr, char *dststr, size_t len);
+// return pointer to dststr on success or NULL on error
+```
+
+
+
+## 5. 域名系统
+
+`getaddrinfo` 获取一个 host 对应的 IP 地址，`getnameinfo` 获取一个 IP 地址对应的 host  
+
+过时的 API 有 `gethostbyname()`，`getservbyname()` 和 `getservbyport`  
+
+```c
+#include <sys/socket.h>
+#include <netdb.h>
+
+struct addrinfo {
+    int ai_flags;       // AI_*: input flags
+    int ai_family;
+    int ai_socktype;    // SOCK_STREAM|SOCK_DGRAM
+    size_t ai_protocol;
+    char *ai_canonname; // canonical name of host
+    struct sockaddr *ai_addr;
+    struct sockaddr *ai_next;
+};
+
+int getaddrinfo(const char *host, const char *service,
+                const struct *addrinfo *hints, struct addrinfo **result);
+// return 0 on success or nonzero on error
+```
+
+`host`：主机名或 IPv4 点分十进制或 IPv6 十六进制地址字符串  
+
+`service`：服务名或一个端口号  
+
+`hints`：规定了通过 `result` 返回地址结构的标准  
+
+`ai_flags`：
+
+- `AI_ADDRCONFIG`：在本地系统上至少配置了一个 IPv4 地址时返回 IPv4 地址，在本地系统上至少配置了一个 IPv6 系统时返回 IPv6 地址，都是非环回地址
+- `AI_ALL`
+- `AI_CANONNAME`：如果 host 不为 NULL，那么返回一个以 null 结尾的字符串，包含了主机的规范名  
+- `AI_NUMERICHOST`：强制将 host 解释成一个数值地址字符串  
+- `AI_NUMERICSERV  `：将 service 解释成一个数值端口号  
+- `AI_PASSIVE`：返回一个适合进行被动式打开（即一个监听 socket）的 socket 地址结构  
+- `AI_V4MAPPED`：如果在 hints 的 `ai_family` 字段中指定了 `AF_INET6`，那么在没有找到匹配的 IPv6 地址时应该在 result 返回 IPv4 映射的 IPv6 地址结构，如果指定了 `AI_ALL` 和 `AI_V4MAPPED`，那么在 result 中会同时返回 IPv4 和 IPv6 地址，其中 IPv4 地址会被返回成 IPv4 映射的 IPv6 地址结构  
+
+
+
+对 `addrinfo` 链表进行释放：
+
+```c
+#include <sys/socket.h>
+#include <netdb.h>
+
+void freeaddrinfo(struct addrinfo *result);
+```
+
+
+
+在 `getaddrinfo()` 发生错误时，可以使用 `gai_strerror()` 来通过错误码获取错误信息  
+
+```c
+#include <netdb.h>
+
+const char *gai_strerror(int errcode);
+// return pointer to string containing error msg
+```
+
+
+
+`getnameinfo`  
+
+```c
+#include <sys/socket.h>
+#include <netdb.h>
+
+int getnameinfo(const struct sockaddr *addr, socklen_t addrlen, char *host,
+                size_t hostlen, char *service, size_t servlen, int flags);
+// return 0 on success or nonzero on error
+```
+
+可以使用 `NI_MAXHOST` 和 `NI_MAXSERV` 分别传入到 `hostlen` 和 `servlen`  
+
+`flags`: 
+
+- `NI_DGRAM`：在默认情况下，`getnameinfo()` 返回与流 socket（即 TCP）服务对应的名字，NI_DGRAM 标记会强制返回数据报 socket（即 UDP）服务的名字  
+- `NI_NAMEREQD`：如果无法解析主机名，那么在 `host` 中会返回一个数值地址字符串。如果指定了 `NI_NAMEREQD`，那么就会返回一个错误（`EAI_NONAME`）。  
+- `NI_NOFQDN`：默认情况下会返回主机的完全限定域名。指定 `NI_NOFQDN` 标记会导致当主机位于局域网中时只返回名字的第一部分（即主机名）  
+- `NI_NUMERICHOST`：强制在 host 中返回一个数值地址字符串  
+- `NI_NUMERICSERV`：强制在 service 中返回一个十进制端口号字符串  
+
+
+
+## 6. `/etc/services`
+
+一些公共的服务和端口号是固定的，会把服务名和端口号记录到 `/etc/services` 文件中，`getaddrinfo()` 和 `getnameinfo()` 会使用这个文件的信息在服务名和端口号之间转换  
+
+
+
+# 六十、服务器设计
+
+## 1. 迭代和并发
+
+迭代：服务器每次只处理一个客户端，只有当完全处理完一个客户端的请求后才去处理下一个客户端。  
+
+并发：这种类型的服务器被设计为能够同时处理多个客户端的请求  
+
+
+
+## 2. I/O 模型
+
+阻塞式 I/O：用户进程进行 I/O 系统调用，陷入到内核，阻塞直到数据准备好并复制到用户空间，最后成功返回  
+
+非阻塞式 I/O：用户进程不断进行 I/O 系统调用，如果无数据，立即返回并设置 `errno` 为 `EWOULDBLOCK`；否则，当数据准备好并复制到用户空间，成功返回  
+
+I/O 多路复用（事件驱动 I/O）：可以使用 `select/poll/epoll/kqueue` 在一个线程中监听多个文件描述符，当其中一个数据准备好，就通知进程，之后进行 I/O 系统调用，把数据从内核空间拷贝到用户空间，之后成功返回，其中进行 I/O 的文件描述符为非阻塞的  
+
+信号驱动式 I/O：不常用，让内核在描述符就绪时发送 `SIGIO` 信号通知用户进程  
+
+异步 I/O：用户进程发出系统调用后立即返回，内核等待数据准备完成，然后将数据拷贝到用户进程缓冲区，然后发送信号告诉用户进程 I/O 操作执行完毕
+
+
+
+信号驱动和异步的区别在于信号驱动是在数据准备好之后就通知用户进程，用户进程通过 I/O 系统调用进行处理，异步 I/O 通过异步 I/O 系统调用（比如 `aio_read`），当数据准备好之后还不会发送信号，直到 I/O 执行结束（把内核空间的数据拷贝到用户空间），才会发送信号到用户进程  
+
+
+
+## 3. 设计模型
+
+**每个请求一个线程（多线程或线程池）+ 阻塞 I/O**  
+
+简单易行，不过是长连接而且请求多时会出现性能问题  
+
+
+
+**Reactor 模型**  
+
+利用事件驱动机制，应用程序需要提供相应的接口并注册到 Reactor 上，如果相应的事件发生，将会调用之前注册的回调函数
+
+Reactor 是被动的事件和分发模型，等待请求的到来，再分别对请求做出相应的处理，事件串行化避免多线程的编程复杂性
+
+实现较为简单，可以模块化，由于回调机制导致调试比较困难  
+
+也可以将多线程来使用 Reactor  
+
+- 单线程 Reactor，acceptor 和事件处理函数 handler 都在一个线程中（接受新连接和处理请求事件都放到一个线程中）
+- 多线程 Reactor，将非 I/O 的业务逻辑剥离出主 Reactor，放到一个线程池中，让工作线程进行处理，保证 `Reactor` 线程不会阻塞，而 `Reactor` 仍为单个线程仍然要处理连接和 I/O 操作
+- 主从 Reactor，主 Reactor 线程也就是 `Acceptor` 只负责建立连接，建立之后将其注册到 从 Reactor 线程 中，一个连接注册一个 `Reactor` 线程上，非 I/O 请求（具体逻辑处理）的任务则会交由工作线程池处理
+
+案例：`libevent, Redis, ACE` 等等
+
+
+
+**Proactor 模型**
+
+应用程序初始化一个异步 I/O 操作，然后注册相应的事件处理函数 handler，这个 handler 关注 I/O 操作执行完成的的事件，而不是 Reactor 那样关注可以读取的事件。之后切换处理其他的事情，等待 I/O 操作处理完成，当等待的 I/O 操作完成（内核写会到用户空间）时，事件分离器捕获到事件完成的信号后，激活事件处理器，执行之前注册的回调函数  
+
+Proactor 是主动的事件分离和分发模型，允许多个任务并发执行  
+
+Proactor 性能更高，能够处理耗时长的并发场景，实现的逻辑复杂，依赖操作系统对异步的支持  
+
+
+
+**半同步半异步(Half-Sync/Half-Async)**  
+
+单独一个 I/O 线程来异步处理网络 I/O，使用线程池来同步处理请求，Leader-Follower 模型属于该模型变体  
+
+
+
+**全异步**  
+
+比如 C++ 的 `future/promise`，Go 的 goroutine，还有一些语言的 `async/await`，还有 Python 的 `yield`，高效，但是用某种语言编写业务逻辑可能困难    
+
+
+
+
+
+## 4. `inetd`
+
+守护进程 `inetd` 被设计为用来消除运行大量非常用服务器进程的需要  
+
+- 与其为每个服务运行一个单独的守护进程，现在只用一个进程 `inetd` 守护进程—就可以监视一组指定的套接字端口，并按照需要启动其他的服务，降低系统上运行的进程数量  
+- `inetd` 简化了启动其他服务的编程工作  
+
+
+
+
+
+
+
