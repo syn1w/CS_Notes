@@ -1976,5 +1976,206 @@ Proactor 性能更高，能够处理耗时长的并发场景，实现的逻辑�
 
 
 
+# 六十一、socket 高级主题
+
+## 1. 流部分读写
+
+如果套接字上可用的数据比在 `read()` 调用中请求的数据要少，那就可能会出现部分读的现象。在这种情况下，`read()` 简单地返回可用的字节数  
+
+出现以下其中一条可能会发生部分写现象：
+
+- 在 `write()` 调用传输了部分请求的字节后被信号处理例程中断  
+- 套接字工作在非阻塞模式下，可能当前只能传输一部分请求的字节  
+- 在部分请求的字节已经完成传输后出现了一个异步错误，比如由于 TCP 连接出现问题  
+
+可以实现 `readn` 和 `writen` 函数来循环调用 `read()` 和 `write`，确保请求的字节数全部得到传输  
+
+
+
+## 2. `shutdown`
+
+```c
+#include <sys/socket.h>
+
+int shutdown(int sockfd, int how);
+// return 0 on success or -1 on error
+```
+
+`how`：
+
+- `SHUT_RD` 关闭读端，之后的读操作返回 `EOF`，对 TCP socket 来说意义不大  
+- `SHUT_WR` 关闭写端，在 shutdown()中最常用到的操作就是 `SHUT_WR`，有时候也被称为半关闭套接字，关闭写端，对端会收到 `EOF`  
+- `SHUT_RDWR` 关闭读写端，这等同于先执行 `SHUT_RD`，跟着再执行一次 `SHUT_WR` 操作  
+
+`shutdown()` 并不会关闭文件描述符，之后仍然需要 `close()` 来关闭文件描述符  
+
+
+
+## 3. `recv/send`
+
+`recv()` 和 `send()` 系统调用专用于已连接的套接字上执行 I/O 操作  
+
+```c
+#include <sys/socket.h>
+
+ssize_t recv(int sockfd, void *buffer, size_t length, int flags);
+// return number of bytes received, 0 on EOF, or -1 on error
+
+ssize_t send(int sockfd, const void *buffer, size_t length, int flags);
+// return number of bytes sent, or -1 on error
+```
+
+`recv flags`：
+
+- `MSG_DONTWAIT`：让 `recv()` 以非阻塞方式执行。如果没有数据可用，错误码为 `EAGAIN`。`O_NONBLOCK` 的区别在于 `MSG_DONTWAIT` 允许我们在每次调用中控制非阻塞行为  
+- `MSG_OOB`：在套接字上接收带外数据  
+- `MSG_PEEK`：从套接字缓冲区中获取一份请求字节的副本，但不会将请求的字节从缓冲区中实际移除。这份数据稍后可以由其他的 `recv()` 或 `read()` 调用重新读取  
+- `MSG_WAITALL`：指定了 `MSG_WAITALL` 标记后将导致系统调用阻塞，直到成功接收到 `length` 个字节。但是当 (a) 捕获到一个信号；(b) 流 socket 对端终止了连接；(c) 遇到了带外数据字节； (d) 数据报 socket 接收的数据报长度小于 `length` 字节； (e) socket 上出错。仍然会导致接收到的字节数小于 `length`  
+
+
+
+`send flags`：
+
+- `MSG_DONTWAIT`：让 `send()` 以非阻塞方式执行。如果数据不能立刻传输（因为套接字发送缓冲区已满），那么该调用不会阻塞，而是调用失败，伴随的错误码为 `EAGAIN`  
+- `MSG_MORE`：在 TCP 套接字上，这个标记实现的效果同套接字选项 `TCP_CORK`；如果用于 UDP 数据报，在连续的 `send` 或 `sendto` 调用中传输的数据，会打包成一个单独的数据报，仅当下一次调用没有 `MSG_MORE` 才会传输出去（类似于 Linux 的 UDP_CORK）  
+- `MSG_NOSIGNAL`：当在已连接的流式套接字上发送数据时，如果连接的另一端已经关闭了，指定该标记后将
+  不会产生 `SIGPIPE` 信号。相反， `send()` 调用会失败，伴随的错误码为 `EPIPE`  
+- `MSG_OOB`：在流式套接字上发送带外数据  
+
+
+
+## 4. `sendfile()`
+
+像 Web 服务器和文件服务器这样的应用程序常常需要将磁盘上的文件内容不做修改地通过（已连接）套接字传输出去。可以循环写到 `sockfd` 上  
+
+还可以调用 `sendfile()` 时，文件内容会直接传送到套接字上，而不会经过用户空间。被称为 zero-copy transfer  
+
+
+
+```c
+#include <sys/sendfile.h>
+
+ssize_t sendfile(int outfd, int infd, off_t *offset, size_t count);
+// return number of bytes transferred, or -1 on error
+```
+
+参数 `infd` 指向的文件必须是可以进行 `mmap()` 操作的，我们可以使用 `sendfile()` 将数据从文件传递到 socket 上， 但反过来不行  
+
+
+
+`TCP_CORK` socket 选项  
+
+要进一步提高 TCP 应用使用 `sendfile()` 时的性能，采用 Linux 专有的套接字选项 `TCP_CORK` 常常会很有帮助  
+
+当在 TCP 套接字上启用了 TCP_CORK 选项后，之后所有的输出都会缓冲到一个单独的 TCP报文段中，直到满足以下条件为止：已达到报文段的大小上限、取消了 `TCP_CORK` 选项、套接字被关闭。或者当启用 `TCP_CORK` 后，从写入第一个字节开始已经经历了 200 毫秒  
+
+
+
+## 5. 获取 socket 地址
+
+`getsockname()` 和 `getpeername()` 这两个系统调用分别返回本地套接字地址以及对端套接字地址  
+
+```c
+#include <sys/socket.h>
+
+int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+// return 0 on success or -1 on error
+```
+
+当隐式绑定到一个 Internet 域套接字上时，如果我们想获取内核分配给套接字的临时端口号，那么调用 `getsockname()` 也是有用的  
+
+系统调用 `getpeername()` 返回流式套接字连接中对端套接字的地址。需要客户端的地址时需要使用  
+
+
+
+## 6. 深入探讨 TCP
+
+见计算机网络  
+
+
+
+## 7. `netstat`
+
+`netstat` 命令可以显示系统中 Internet 和 UNIX 域套接字的状态  
+
+|   选项   |                      描述                      |
+| :------: | :--------------------------------------------: |
+|    -a    |      显示所有套接字的信息，包括监听套接字      |
+|    -e    |   显示出扩展信息（包括套接字属主的用户 ID）    |
+|    -c    |   连续重新显示套接字信息（每秒刷新显示一次）   |
+|    -l    |             只显示监听套接字的信息             |
+|    -n    | 显示 IP 地址、端口号并以数字形式显示出用户名称 |
+|    -p    |    显示进程 ID 号以及套接字所归属的程序名称    |
+| `--inet` |          显示 Internet 域套接字的信息          |
+| `--tcp`  |     显示 Internet 域 TCP（流）套接字的信息     |
+| `--udp`  |   显示 Internet 域 UDP（数据报）套接字的信息   |
+| `--unix` |            显示 UNIX 域套接字的信息            |
+
+
+
+## 8. `tcpdump`
+
+TCP 输出形式：
+
+```txt
+timestamp src > dst: flags seqno ack window urg options
+
+flags: S(SYN), F(FIN), P(PSH), R(RST), E(ECE), C(CWR)
+```
+
+
+
+## 9. socket 选项
+
+```c
+#include <sys/socket.h>
+
+int getsockopt(int sockfd, int level, int optname, void *optval,
+               socklen_t *optlen);
+int setsockopt(int sockfd, int level, int optname, const void *optval,
+               socklen_t *optlen);
+// return 0 on success or -1 on error
+```
+
+`SOL_SOCKET`，这表示选项作用于套接字 API 层  
+
+`optname` 标识了我们希望设定或得到的套接字选项  
+
+socket 选项有 `SO_TYPE` 获取 socket 类型(`SOCK_STREAM/SOCK_DGRAM`)，`SO_REUSEADDR` 避免当 TCP 服务器重启时，尝试将套接字绑定到当前已经同 TCP 结点相关联的端口上时出现的 `EADDRINUSE`（地址已使用）错误  
+
+以下情况会出现 `EADDRINUSE`：
+
+- 之前连接到客户端的服务器要么通过 `close()`，要么是因为崩溃（例如被信号杀死）而执行了一个主动关闭。 这就使得 TCP 结点将处于 `TIME_WAIT` 状态， 直到 2 倍的 `MSL` 超时过期为止  
+- 服务器先创建一个子进程来处理客户端的连接。稍后，服务器终止，而子进程继续服务客户端，因而使得维护的 TCP 结点使用了服务器的 well-known port  
+
+
+
+在监听套接字的文件描述符上设置的标记或选项，在 Linux 上，以下属性不会被 `accept()` 返回的连接文件描述符所继承，需要重新设置：
+
+- 打开文件描述符相关的状态标记，可以通过 `fcntl()` 的 `F_SETFL` 所修改的标记，包括 `O_NONBLOCK` 和 `O_ASYNC`
+- 文件描述符标记，可以通过 `fcntl()` 的 `F_SETFD` 来修改的标记，包括 `FD_CLOEXEC`  
+- 信号驱动 I/O 相关联的文件描述符选项 `fcntl()` 的 `F_SETOWN` 已经 `F_SETSIG`  
+
+
+
+## 10. 带外数据
+
+带外数据是流式套接字的一种特性，允许发送端将传送的数据标记为高优先级。带外数据的发送和接收需要在 `send()` 和 `recv()` 中指定 `MSG_OOB` 标记。  当一个套接字接收到带外数据可用的通知时，内核为套接字的属主（通常是使用该套接字的进程）生成 `SIGURG` 信号  
+
+当采用 TCP 套接字时，任意时刻最多只有 1 字节数据可被标记为带外数据。  
+
+不提倡使用带外数据的，  
+
+
+
+## 11. `*msg()`
+
+`sendmsg()` 和 `recvmsg()` 是套接字 I/O 系统调用中最为通用的两种。`sendmsg()` 系统调用能做到所有 `write()`、`send()` 以及 `sendto()` 能做到的事；`recvmsg()` 系统调用能做到所有 `read()`、`recv()` 以
+及 `recvfrom()` 能做到的事，还有以下功能：
+
+- 同 `readv()` 和 `writev()` 一样， 我们可以执行分散-聚合 I/O  
+- 我们可以传送包含特定于域的辅助数据  
+
 
 
