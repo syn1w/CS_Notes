@@ -2179,3 +2179,91 @@ socket 选项有 `SO_TYPE` 获取 socket 类型(`SOCK_STREAM/SOCK_DGRAM`)，`SO_
 
 
 
+# 六十二、终端
+
+## 1. 概述
+
+传统型终端和终端模拟器都需要同终端驱动程序相关联，由驱动程序负责处理设备上的输入和输出  
+
+当执行输入时，驱动程序可以工作在以下两种模式下:
+
+- 规范模式：在这种模式下，终端的输入是按行来处理的，而且可进行行编辑操作  
+- 非规范模式：终端输入不会被装配成行。像 vi、 more 和 less 这样的程序会将终端置于非规范模式，这样不需要用户按下回车键它们就能读取到单个的字符了  
+
+终端驱动程序会对两个队列做操作：一个用于从终端设备将输入字符传送到读取进程上，另一个用于将输出字符从进程传送到终端上。  
+
+
+
+## 2. 获取和设置终端
+
+```c
+#include <termios.h>
+
+struct termios {
+  	tcflag_t c_iflag; // input flags
+    tcflag_t c_oflag; // output flags
+    tcflag_t c_cflag; // control flags
+    tcflag_t c_lflag; // local modes
+    cc_t     c_cc[NCCS];  // speical characters
+};
+
+int tcgetattr(int fd, struct termios *ptermios);
+int tcsetattr(int fd, int optionalactions, const struct )
+```
+
+`optionalactions`：
+
+- `TCSANOW`：修改立刻得到生效  
+- `TCSADRAIN`：当所有当前处于排队中的输出已经传送到终端之后，修改得到生效  
+- `TCSAFLUSH`：该标志的产生的效果同 `TCSADRAIN`，但是除此之外，当标志生效时那些仍然等待处理的输入数据都会被丢弃。比如，当读取一个密码时，此时我们希望关闭终端回显功能，并防止用户提前输入  
+
+
+
+## 3. `stty` 命令
+
+`stty` 命令是以命令行的形式来模拟函数 `tcgetattr()` 和 `tcsetattr()` 的功能  
+
+
+
+## 4. 终端特殊字符
+
+|  字符   | `c_cc` 下标 |       描述        | 默认设定 |
+| :-----: | :---------: | :---------------: | :------: |
+|   CR    |   （无）    |       回车        |    ^M    |
+| DISCARD |  VDISCARD   |     丢弃输出      |    ^O    |
+|   EOF   |    VEOF     |     文件结尾      |    ^D    |
+|   EOL   |    VEOL     |      行结尾       |          |
+|  EOL2   |    VEOL2    |   另一种行结尾    |          |
+|  ERASE  |   VERASE    |     擦除字符      |    ^?    |
+|  INTR   |    VINTR    |  中断（ SIGINT）  |    ^C    |
+|  KILL   |    VKILL    |     擦除一行      |    ^U    |
+|  LNEXT  |   VLNEXT    |  字面化下个字符   |          |
+|   NL    |   （无）    |       换行        |    ^J    |
+|  QUIT   |    VQUIT    | 退出（ SIGQUIT）  |    ^\    |
+| REPRINT |  VREPRINT   |  重新打印输入行   |    ^R    |
+|  START  |   VSTART    |     开始输出      |    ^Q    |
+|  STOP   |    VSTOP    |     停止输出      |    ^S    |
+|  SUSP   |    VSUSP    | 暂停（`SIGTSTP`） |    ^Z    |
+| WERASE  |   VWERASE   |   擦除一个 word   |    ^W    |
+
+
+
+## 5. 终端的 I/O 模式
+
+**规范模式**  
+
+可通过设定 `ICANON` 标志来打开规范模式输入，规范模式：
+
+- 输入被装配成行，通过如下几种行结束符来终结：`NL`、`EOL`、`EOL2`(如果启用 `IEXTEN`)、`EOF`、`CR`(如果启用 `ICRNL`)  
+- 打开了行编辑功能， 这样可以修改当前行中的输入。 因此， 下列字符是可用的： `ERASE`、
+  `KILL`、`WERASE`(如果设定了 `IEXTEN` 标志)  
+- 如果设定了 `IEXTEN` 标志，则 `REPRINT` 和 `LNEXT` 字符也都是可用的  
+
+
+
+**非规范模式**  
+
+在非规范模式下（关闭 `ICANON` 标志）不会处理特殊的输入。特别的一点是：输入不再装配成行，相反会立刻对应用程序可见  
+
+
+
