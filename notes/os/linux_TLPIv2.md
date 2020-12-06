@@ -2267,3 +2267,376 @@ int tcsetattr(int fd, int optionalactions, const struct )
 
 
 
+# 六十三、其他 I/O
+
+主要介绍 I/O 多路复用、信号驱动 I/O、Linux 专有的 `epoll`  
+
+## 1. 概述
+
+**非阻塞式 I/O** 可以让我们周期性地检查（“轮询”） 某个文件描述符上是否可执行 I/O 操作，但是在一个紧凑的循环中做轮询就是在浪费 CPU。  
+
+**每个请求一个进程/线程**：我们可以创建一个新的进程来执行 I/O。此时父进程就可以去处理其他的任务了，而子进程将阻塞直到 I/O 操作完成。  
+
+可以使用 **I/O 多路复用的方式**：允许进程同时检查多个文件描述符以找出它们中的任何一个是否可执行 I/O 操作(`select` 和 `poll` 复杂度是 O(n)，n 为监听文件描述符的数量，可以使用 Linux 特有的 `epoll`，复杂度是 O(log n))  
+
+
+
+**水平触发**：如果文件描述符上可以非阻塞地执行 I/O 系统调用，此时认为它已经就绪  
+
+**边缘触发**：如果文件描述符自上次状态检查以来有了新的 I/O 活动，此时需要触发通知  
+
+`select` 和 `poll` 只能水平触发，信号驱动 I/O 只能边缘触发，`epoll` 两种都可以  
+
+
+
+由于水平触发模式允许我们在任意时刻重复检查 I/O 状态，没有必要每次当文件描述符就绪后需要尽可能多地执行 I/O（也就是尽可能多地读取字节，亦或是根本不去执行任何 I/O）  
+
+当我们采用边缘触发时，只有当 I/O 事件发生时我们才会收到通知。在另一个 I/O 事件到来前我们不会收到任何新的通知。另外，当文件描述符收到 I/O 事件通知时，通常我们并不知道要处理多少 I/O（例如有多少字节可读）。因此，采用边缘触发通知的程序通常要按照如下规则来设计：
+
+- 在接收到一个 I/O 事件通知后，程序在某个时刻应该在相应的文件描述符上尽可能多地执行 I/O（比如尽可能多地读取字节）。  
+- 每个被检查的文件描述符通常都应该置为非阻塞模式，在得到 I/O 事件通知后重复执行 I/O 操作，直到相应的系统调用以错误码 `EAGAIN` 或 `EWOULDBLOCK` 的形式失败。  
+
+
+
+## 2. I/O 多路复用
+
+**select**  
+
+```c
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+void FD_CLR(int fd, fd_set *set);
+int  FD_ISSET(int fd, fd_set *set);
+void FD_SET(int fd, fd_set *set);
+void FD_ZERO(fd_set *set);
+
+int select(int nfds, fd_set *readfds, fd_set *writefds,
+           fd_set *exceptfds, struct timeval *timeout);
+// return number of ready file descriptors, 0 on timeout, or -1 on error
+```
+
+`readfds` 是用来检测输入是否就绪的文件描述符集合  
+
+`writefds` 是用来检测输出是否就绪的文件描述符集合  
+
+`exceptfds` 是用来检测异常情况是否发生的文件描述符集合  
+
+
+
+Linux 上，异常情况只会在下面两种情况下发生：
+
+- 连接到处于信包模式下的伪终端主设备上的从设备状态发生了改变  
+- 流式套接字上接收到了带外数据  
+
+
+
+`fd_set` 用 `FD_*` 四个宏操作，`FD_ZERO` 清空，`FD_SET` 将 `fd` 加入到 `fd_set` 中，`FD_CLR` 将 `fd` 从 `fd_set` 中移除  
+
+文件描述符集合有一个最大容量限制，由常量 `FD_SETSIZE` 来决定。在 Linux 上，该常量的值为 1024。
+
+
+
+**poll**  
+
+系统调用 `poll()` 执行的任务同 `select()` 很相似。 两者间主要的区别在于我们要如何指定待检查的文件描述符。  
+
+```c
+#include <poll.h>
+
+struct pollfd {
+    int fd;
+    short events;  // requested events bit mask
+    short revents; // returned events bit mask
+};
+
+int poll(struct pollfd fds[], nfds_t nfds, int timeout);
+// return number of ready fd, 0 on timeout or -1 on error
+```
+
+
+
+`events` 和 `revents` 掩码值  
+
+|    位掩码    | `events` 输入 | 返回到 `revents` |                描述                |
+| :----------: | :-----------: | :--------------: | :--------------------------------: |
+|  *`POLLIN`   |       v       |        v         |        可读取的非优先级数据        |
+| `POLLRDNORM` |       v       |        v         |          等同于 `POLLIN`           |
+| `POLLRDBAND` |       v       |        v         | 可读取的优先级数据(Linux 中不使用) |
+|  *`POLLPRI`  |       v       |        v         |         可读取高优先级数据         |
+| *`POLLRDHUP` |       v       |        v         |           对端套接字关闭           |
+|  *`POLLOUT`  |       v       |        v         |            普通数据可写            |
+| `POLLWRNORM` |       v       |        v         |          等同于 `POLLOUT`          |
+| `POLLWRBAND` |       v       |        v         |          优先级数据可写入          |
+|  *`POLLERR`  |               |        v         |             有错误发生             |
+|  *`POLLHUP`  |               |        v         |              出现挂断              |
+|  `POLLNVAL`  |               |        v         |          文件描述符未打开          |
+|  `POLLMSG`   |               |                  |           Linux 中不使用           |
+
+
+
+Linux 上，`poll` 关心的位掩码只有上表带 `*` 的  
+
+
+
+**文件描述符何时就绪**  
+
+如果 I/O 函数调用不会阻塞，而不论该函数是否能够实际传输数据，此时文件描述符（未指定 `O_NONBLOCK` 标志）被认为是就绪的，`select()` 和 `poll()` 只会告诉我们 I/O操作是否会阻塞，而不是告诉我们到底能否成功传输数据  
+
+详细分析 `select` 和 `poll` 在不同类型的文件上发生的情况，`select`  用 `r/w/x` 分别表示文件描述符是否被标记为可读、可写、异常，`poll` 分别使用`POLLIN/POLLOUT/POLLHUP/POLLERR` 来表示  
+
+
+
+*普通文件*
+
+普通文件的文件描述符总是被 `select()` 标记为可读和可写。对于 `poll()` 来说，则会在 `revents` 字段中返回 `POLLIN` 和 `POLLOUT` 标志  
+
+
+
+*终端和伪终端*  
+
+|                     条件或事件                     | `select` |   `poll`   |
+| :------------------------------------------------: | :------: | :--------: |
+|                       有输入                       |    r     |  `POLLIN`  |
+|                       可输出                       |    w     | `POLLOUT`  |
+|             伪终端对端调用 `close` 后              |   `rw`   | 取决于实现 |
+| 处于信包模式下的伪终端主设备检测到从设备端状态改变 |    x     | `POLLPRI`  |
+
+
+
+*pipe 和 FIFO*  
+
+读端通知：
+
+| 管道中是否有数据？ | 写端是否打开？ | `select` |       `poll`       |
+| :----------------: | :------------: | :------: | :----------------: |
+|         否         |       否       |    r     |     `POLLHUP`      |
+|         是         |       是       |    r     |      `POLLIN`      |
+|         是         |       否       |    r     | `POLLIN | POLLHUP` |
+
+写端通知：
+
+| 是否有 `PIPE_BUF` 个字节的空间？ | 读端是否打开？ | `select` |       `poll`        |
+| :------------------------------: | :------------: | :------: | :-----------------: |
+|                否                |       否       |    w     |      `POLLERR`      |
+|                是                |       是       |    w     |      `POLLOUT`      |
+|                是                |       否       |    w     | `POLLOUT | POLLERR` |
+
+
+
+*socket*  
+
+|                     条件或事件                     | `select` |           `poll`           |
+| :------------------------------------------------: | :------: | :------------------------: |
+|                       有输入                       |    r     |          `POLLIN`          |
+|                       可输出                       |    w     |         `POLLOUT`          |
+|               在监听套接字上建立连接               |    r     |          `POLLIN`          |
+|             接收到带外数据（只限 TCP）             |    x     |         `POLLPRI`          |
+| 流套接字的对端关闭连接或执行了 shutdown(`SHUT_WR`) |   `rw`   | `POLLIN|POLLOUT|POLLRDHUP` |
+
+
+
+**select 和 poll 的比较：**
+
+- 实现细节：都使用了内核 poll 
+- API：`select` 监听描述上限是 `FD_SETSIZE`，一般是 1024，poll 理论上没有上限（文件描述符上限）；`select()` 提供的超时精度（微秒）比 `poll()` 提供的超时精度（毫秒）高；如果其中一个被检查的文件描述符关闭了，通过在对应的 `revents` 字段中设定 `POLLNVAL` 标记， `poll()` 会准确告诉我们是哪一个文件描述符关闭了。 与之相反， `select()` 只会返回 -1，并设错误码为 `EBADF`  
+- 可移植性：`select` 更好，不过区别不大
+- 性能：都是`O(nfds)`， `select` 适用于待检查的文件描述符范围较小；如果被检查的文件描述符集合很稀疏的话，使用 `poll` 更好一些  
+
+
+
+**存在的问题**  
+
+- 每次调用 `select()` 或 `poll()`，内核都必须检查所有被指定的文件描述符，看它们是否处于就绪态  
+- 每次调用 `select()` 或 `poll()` 时，程序都必须传递一个表示所有需要被检查的文件描述符的数据结构到内核，内核检查过描述符后，修改这个数据结构并返回给程序。对 `poll` 来说，传递给内核的数据结构大小随着监听文件描述符的增加而增大，对 `select` 而言，数据结构为固定的 `FD_SETSIZE`  
+- `select()` 或 `poll()` 调用完成后，程序必须检查返回的数据结构中的每个元素，以此查明哪个文件描述符处于就绪态了  
+
+
+
+## 3. 信号驱动 I/O
+
+使用信号驱动 I/O 步骤：
+
+- 为内核发送的通知信号安装一个信号处理例程。默认情况下，这个通知信号为 `SIGIO`  
+- 设定文件描述符的属主，也就是当文件描述符上可执行 I/O 时会接收到通知信号的进程或进程组  
+- 通过设定 `O_NONBLOCK` 标志使能非阻塞 I/O  
+- 通过打开 `O_ASYNC` 标志使能信号驱动 I/O  
+- 调用进程现在可以执行其他的任务了  
+- 信号驱动 I/O 提供的是边缘触发通知。这表示一旦进程被通知 I/O 就绪，它就应该尽可能多地执行 I/O（例如尽可能多地读取字节）。 假设文件描述符是非阻塞式的，这表示需要在循环中执行 I/O 系统调用直到失败为止，此时错误码为 `EAGAIN` 或 `EWOULDBLOCK`  
+
+
+
+
+
+## 4. `epoll`
+
+`epoll` 和 `poll` 类似，当检测大量文件描述符时，`epoll` 性能比 `poll` 高很多。而且支持边缘触发和水平触发两种  
+
+`epoll` API 包括 `create/ctl/wait` 3 个系统调用  
+
+```c
+// create
+
+#include <sys/epoll.h>
+
+int epoll_create(int size);
+int epoll_create1(int flags);
+// return fd on success or -1 on error
+```
+
+参数 size 指定了我们想要通过 `epoll` 实例来监听的文件描述符个数，现在已经被忽略  
+
+`epoll_create1` 去掉了过时的 `size` 参数，支持 `EPOLL_CLOEXEC` flags  
+
+
+
+控制 `epoll` 感兴趣的文件描述符列表：`epoll_ctl`
+
+```c
+#include <sys/epoll.h>
+
+typedef union epoll_data {
+    void *ptr;   // pointer to user-defined data
+    int fd;
+    uint32_t u32;
+    uint64_t u64;
+}
+
+struct epoll_event {
+    uint32_t     events;  // epoll events(bit mask)
+    epoll_data_t data;    // user data
+};
+
+int epoll_ctl(int epfd, int op, int fd, struct epoll_event *ev);
+// return 0 on success or -1 on error
+```
+
+`op`：
+
+- `EPOLL_CTL_ADD`：添加 `fd`，事件在 `ev` 指向的结构体中，如果兴趣列表中添加一个已存在的文件描述符， `epoll_ctl()` 将出现 `EEXIST` 错误  
+- `EPOLL_CTL_MOD`：修改描述符 `fd` 上设定的事件，需要用到由 `ev` 所指向的结构体中的信息。如果我们试图修改不在兴趣列表中的文件描述符，`epoll_ctl()` 将出现 `ENOENT` 错误  
+- `EPOLL_CTL_DEL`：删除 `fd`，忽略 `ev` 参数，如果移除一个不在 `epfd` 的兴趣列表中的文件描述符， `epoll_ctl()` 将出现 `ENOENT` 错误  
+
+
+
+`events` 指定了我们为待检查的描述符 `fd` 上所感兴趣的事件集合，感兴趣的事件和 `poll` 类似，有 `EPOLL_IN/EPOLL_HUP/EPOLL_PRI/EPOLL_OUT/EPOLL_RDHUP/EPOLL_ERR`  
+
+
+
+因为每个注册到 `epoll` 实例上的文件描述符需要占用一小段不能被交换的内核内存空间，因此内核提供了一个接口用来定义每个用户可以注册到 `epoll` 实例上的文件描述符总数。这个上限值可以通过 `max_user_watches` 来查看和修改。 max_user_watches 是专属于 Linux 系统的 `/proc/sys/fd/epoll` 目录下的一个文件。  
+
+
+
+事件等待：`epoll_wait`，单个 `epoll_wait()` 调用能返回多个就绪态文件描述符的信息  
+
+```c
+#include <sys/epoll.h>
+
+int epoll_wait(int epfd, struct epoll_event *evlist, int maxevents, int timeout);
+// return number of ready fd, 0 on timeout or -1 on error
+```
+
+参数 `evlist` 所指向的结构体数组中返回的是有关就绪态文件描述符的信息  
+
+数组 `evlist` 的空间由调用者负责申请，所包含的元素个数在参数 `maxevents` 中指定  
+
+在数组 `evlist` 中，每个元素返回的都是单个就绪态文件描述符的信息。 `events` 字段返回了在该描述符上已经发生的事件掩码。 `data` 字段返回的是我们在描述符上使用 `cpoll_ctl()` 注册感兴趣的事件时在 `ev.data` 中所指定的值  
+
+调用 `epoll_ctl()` 将文件描述符添加到兴趣列表中时，应该要么将 `ev.data.fd` 设为文件描述符号，要么将 `ev.data.ptr` 设为指向包含文件描述符号的结构体  
+
+
+
+`timeout`：
+
+- -1：调用将一直阻塞，直到兴趣列表中的文件描述符上有事件产生，或者直到捕获到一个信号为止。  
+- 0：执行一次非阻塞式的检查，看兴趣列表中的文件描述符上产生了哪个事件。  
+- 大于 0：调用将阻塞至多 timeout 毫秒，直到文件描述符上有事件发生，或者直到捕获到一个信号为止  
+
+
+
+在多线程程序中，可以在一个线程中使用 `epoll_ctl()` 将文件描述符添加到另一个线程由 `epoll_wait()` 所监视的 `epoll` 实例的兴趣列表中去  
+
+
+
+**`EPOLLONESHOT` 标志**  
+
+一旦通过 `epoll_ctl()` 的 `EPOLL_CTL_ADD` 操作将文件描述符添加到 `epoll` 实例的兴趣列表中后，它会保持激活状态直到我们显式地通过 `epoll_ctl()` 的 `EPOLL_CTL_DEL` 操作将其从列表中移除  
+
+如果我们希望在某个特定的文件描述符上只得到一次通知，那么可以在传给 `epoll_ctl()` 的 `ev.events` 中指定 `EPOLLONESHOT` 标志。如果指定了这个标志，那么在下一个 `epoll_wait()` 调用通知我们对应的文件描述符处于就绪态之后，这个描述符就会在兴趣列表中被标记为非激活态，之后的 `epoll_wait()` 调用都不会再通知我们有关这个描述符的状态了  
+
+
+
+**使用 `epoll` 的步骤**： 
+
+- 创建 `epoll` 实例
+
+- 将感兴趣的 `fd` 和事件使用 `epoll_ctl` 添加到兴趣列表中，一般需要检查的事件为 `EPOLLIN`  
+
+- 执行一个循环调用 `epoll_wait`，来监听 `epoll` 感兴趣列表中的文件描述符  
+
+- 当 `epoll_wait` 调用之后，需要检查是否返回了 `EINTR` 错误码，如果在 `epoll_wait` 调用执行期间被信号打断，之后通过 `SIGCONT` 信号恢复执行，此时就可能出现这个错误，这种情况应用程序需要重新继续执行 `epoll_wait`调用
+
+-  如果 `epoll_wait()` 调用成功，程序就再执行一个内层循环检查 `evlist` 中每个已就绪的元素，不止检查调用 `epoll_ctl` 时所添加感兴趣的事件，也要检查 `EPOLLHUP` 和 `EPOLLERR` 等标记
+
+  ```c
+  int ready = epoll_wait(epfd, evlist, MAX_EVENTS, -1);
+  // check ready...
+  // successfuly call epoll_wait
+  for (int i = 0; i < ready; ++i) {
+      if (evlist[i].events & EPOLLIN) {
+          // read syscall
+      } else if (evlist[i].events & (EPOLLHUP | EPOLLERR))
+      
+      
+  }
+  ```
+
+  
+
+`epoll` API 的应用场景就是需要同时处理许多客户端的服务器：需要监视大量的文件描述符，但大部分处于空闲状态，只有少数文件描述符处于就绪态  
+
+
+
+**`epoll` 的触发机制**  
+
+默认情况下 `epoll` 提供的是水平触发通知。这表示 `epoll` 会告诉我们何时能在文件描述符上以非阻塞的方式执行 I/O 操作  
+
+`epoll` API 还能以边缘触发方式进行通知—也就是说，会告诉我们自从上一次调用 `epoll_wait()` 以来文件描述符上是否已经有 I/O 活动了（或者由于描述符被打开了，如果之前没有调用的话）。使用 `epoll` 的边缘触发通知在语义上类似于信号驱动 I/O，只是如果有多个 I/O 事件发生的话， `epoll` 会将它们合并成一次单独的通知  
+
+使用边缘触发通知，我们在调用 `epoll_ctl()` 时在 `ev.events` 字段中指定 `EPOLLET` 标志  
+
+```c
+ev.events = EPOLLIN | EPOLLET;
+```
+
+
+
+`epoll` 水平触发和边缘触发区别的例子，使用 `epoll` 来监视一个套接字上的输入（ `EPOLLIN`）  
+
+- socket 有数据到来
+- 调用一次 `epoll_wait`，无论采用水平触发还是边缘触发，都会通知 socket 处于就绪态
+- 再次调用 `epoll_wait` 
+
+如果我们采用的是水平触发通知，那么第二个 `epoll_wait()` 调用将告诉我们套接字处于就绪态。  
+
+而如果我们采用边缘触发通知，那么第二个 `epoll_wait()` 调用将阻塞，因为自从上一次调用 `epoll_wait()` 以来并没有新的输入到来  
+
+
+
+`epoll` 边缘触发基本步骤：
+
+- 让所有待监视的文件描述符都成为非阻塞的  
+- 通过 `epoll_ctl()` 构建 `epoll` 的兴趣列表  
+- 通过 `epoll_wait()` 取得处于就绪态的描述符列表  
+- 针对每一个处于就绪态的文件描述符， 不断进行 I/O 处理直到相关的系统调用返回 `EAGAIN` 或 `EWOULDBLOCK` 错误  
+
+采用边缘触发可能会导致文件描述符饥饿现象，该问题的一种解决方案是让应用程序维护一个列表，列表中存放着已经被通知为就绪态的文件描述符。通过一个循环按照如下方式不断处理：  
+
+- 调用 `epoll_wait()` 监视文件描述符，并将处于就绪态的描述符添加到应用程序维护的列表中。如果这个文件描述符已经注册到应用程序维护的列表中了，那么这次监视操作的超时时间应该设为较小的值或者是 0。这样如果没有新的文件描述符成为就绪态，应用程序就可以迅速进行到下一步，去处理那些已经处于就绪态的文件描述符了  
+- 在应用程序维护的列表中，只在那些已经注册为就绪态的文件描述符上进行一定限度的 I/O 操作（可能是以轮转调度方式循环处理，而不是每次 `epoll_wait()` 调用后都从列表头开始处理 ）。当相关的非阻塞 I/O 系 统调用出现 `EAGAIN` 或 `EWOULDBLOCK` 错误时，文件描述符就可以从应用程序维护的列表中移除了  
+
+
+
+
+
