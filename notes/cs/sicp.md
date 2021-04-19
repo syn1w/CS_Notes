@@ -342,3 +342,175 @@ size              ; 2
 - 可以包含在数据结构中
 
 Lisp 的函数为 First-class function。
+
+
+
+# 二、构造数据抽象
+
+讨论将对象组合起来，形成**复合数据**。复合数据的使用提供程序的模块性，提高程序设计语言的表达能力。
+
+还引进了 [S-表达式](https://zh.wikipedia.org/wiki/S-%E8%A1%A8%E8%BE%BE%E5%BC%8F)，进一步扩大了语言的表述能力。
+
+还有讨论泛型操作，能够处理多种不同的数据类型。
+
+最后对面向数据的程序设计进行介绍。
+
+
+
+## 1. 数据抽象
+
+数据抽象的基本思想，就是构造出使用复合数据对象的程序，使他们就像在“抽象数据”上操作一样。
+
+抽象数据上的两种接口函数是**构造函数**和**选择函数(selector，选择要为函数执行的方法)**，有点面向对象的味道了。
+
+有理数算术的实例：
+
+$\dfrac{n_x}{d_x} + \dfrac{n_y}{d_y} = \dfrac{n_x d_y + n_y d_x}{d_x d_y}$ ...
+
+```scheme
+; make_rat: construct a fraction
+; numer:    return the numerator
+; denon:    return the denominator
+(define (add_rat x y)
+  (make_rat (+ (* (numer x) (denom y))
+               (* (numer y) (denom x))
+            )
+            (* (denom x) (denom y))
+  )
+)
+```
+
+为了实现这一数据结构，使用**序对**的复合结构，可以通过 `cons` 构造一个序对，使用 `car` 和 `cdr` 来提取序对的一部分
+
+```scheme
+(define x (cons 1 2))
+(car x) ; 1
+(cdr x) ; 2
+```
+
+接下来使用序对来实现刚才有理数数据结构
+
+```scheme
+(define (make_rat n d) (cons n d))
+(define (numer x) (car x))
+(define (denom x) (cdr x))
+
+; print a fraction
+(define (print_rat x)
+  (newline)
+  (display (numer x))
+  (display "/")
+  (display (denom x))
+)
+```
+
+上例使用**抽象屏障(封装)**，隔离了系统的不同层次，把使用数据抽象的程序与实现数据抽象的抽象分开。使得程序容易维护和修改。
+
+
+
+看一个 `cons` 的合法实现：
+
+```scheme
+(define (cons x y)
+  (define (dispatch m)
+    (cond ((= m 0) x)
+          ((= m 1) y)
+          (else (error "Argument not 0 or 1 -- CONS" m))
+    )
+  )
+  dispatch
+)
+
+(define (car z) (z 0))
+(define (cdr z) (z 1))
+```
+
+这里的微妙之处是 `cons` 返回了一个函数，该函数根据参数 0 或 1 返回 x 或 y。这个实例说明可以将过程作为对象来操作，这种风格被称为 **消息传递**。
+
+
+
+## 2. 层次性数据和闭包性质
+
+实现序对的标准方式是以一种 box and pointer 的方式，每个对象表示为一个指向 box 的 pointer，box 中存放着包含着对象的表示。比如 `(cons 1 2)`
+
+`cons` 序对的是一个方形 box，左边存在着序对 `car` 指针，右边存放着相应的 `cdr` 指针
+
+```txt
+         +---+---+       +---+
+-------->|   |   |------>| 2 |
+         +---+---+       +---+
+           |
+           v
+         +---+
+         | 1 |
+         +---+
+```
+
+
+
+利用序对可以实现**链表**：
+
+```scheme
+(cons 1 (cons 2 (cons 3 nil)))
+```
+
+
+
+为了方便的链表的构造，提供了基本操作 `list`：
+
+```scheme
+(list <a1> <a2> ... <an>) ; <=> (cons <a1> (cons <a2> (cons ... (cons <an> nil) ... )))
+(car alist)    ; a1
+(cdr alist)    ; (a2 a3 ... an)
+
+(define (list-ref alist n)
+  (if (= n 0)
+      (car alist)
+      (list-ref (cdr alist) (- n 1))
+  )
+)
+
+(define (length alist)
+  (if (null? alist)
+      0
+      (+ 1 (length (cdr alist)))
+  )
+)
+
+;; apply map to a list
+(define (map proc alist)
+  (if (null? alist)
+      nil
+      (cons (proc (car alist))
+            (map proc (cdr alist))
+      )
+  )
+)
+
+;; e.g.
+(define (scale_list alist factor)
+  (map (lambda (x) (* x factor))
+       alist)
+)
+(scale_list (list 1 2 3 4 5) 10)   ; (10 20 30 40 50)
+```
+
+
+
+**层次性结构**
+
+也可以将 `list` 看作是**树**，序列中的元素是树的分支。比如 `(cons (list 1 2) (list 3 4))` 可以看作树形结构：
+
+```txt
+  +---+---+      +---+---+      +---+---+
+  |   |   | ---> | 3 |   | ---> | 4 |   | ---> nil
+  +---+---+      +---+---+      +---+---+                         .
+    |                                                           / | \
+    v                                               ====>      .  3  4
+  +---+---+      +---+                                        / \
+  | 1 |   | ---> | 2 | ---> nil                              1   2
+  +---+---+      +---+
+```
+
+
+
