@@ -429,7 +429,7 @@ $\dfrac{n_x}{d_x} + \dfrac{n_y}{d_y} = \dfrac{n_x d_y + n_y d_x}{d_x d_y}$ ...
 
 
 
-## 2. 层次性数据和闭包性质
+## 2. 层次性数据
 
 实现序对的标准方式是以一种 box and pointer 的方式，每个对象表示为一个指向 box 的 pointer，box 中存放着包含着对象的表示。比如 `(cons 1 2)`
 
@@ -499,7 +499,7 @@ $\dfrac{n_x}{d_x} + \dfrac{n_y}{d_y} = \dfrac{n_x d_y + n_y d_x}{d_x d_y}$ ...
 
 **层次性结构**
 
-也可以将 `list` 看作是**树**，序列中的元素是树的分支。比如 `(cons (list 1 2) (list 3 4))` 可以看作树形结构：
+也可以将 `list` 看作是 **树**，序列中的元素是树的分支。比如 `(cons (list 1 2) (list 3 4))` 可以看作树形结构：
 
 ```txt
   +---+---+      +---+---+      +---+---+
@@ -510,6 +510,127 @@ $\dfrac{n_x}{d_x} + \dfrac{n_y}{d_y} = \dfrac{n_x d_y + n_y d_x}{d_x d_y}$ ...
   +---+---+      +---+                                        / \
   | 1 |   | ---> | 2 | ---> nil                              1   2
   +---+---+      +---+
+```
+
+
+
+求树的叶子节点数目：
+
+```scheme
+(define (count_leaves x)
+  (cond ((null? x) 0)
+        ((not (pair? x)) 1)
+        (else (+ (count_leaves (car x))
+                 (count_leaves (cdr x))
+              )
+        )
+  )
+)
+```
+
+
+
+在复杂的系统中，**分层设计**是广泛使用的设计方法。构造各个层次的方式，就是设法组合起作为这个层次中部件的各种基本元素，这样构成的部件又可以作为另一个层次中的基本元素。
+
+
+
+## 3. 符号数据
+
+之前所使用的复合数据，最终都是从数值出发构造的，这一节将引入任意符号作为数据。
+
+比如：
+
+```scheme
+(define a 1)
+(define b 2)
+
+(list a b)     ; (1 2)
+(list 'a 'b)   ; (a b)
+(list 'a b)    ; (a 2)
+(car '(a b c)) ; a
+```
+
+我们希望构造出表 `(a b)`，当然不能使用 `(list a b)` ，因为这个表达式是构造出 `a, b` **值**的链表，而不是 `a, b` **符号**本身的链表。
+
+符号是变量的名字，可以使用单引号，其后的对象将被作为符号，可以将链表和符号标记都作为数据对象看待，而不是作为求值的表达式。
+
+单引号也可以用于复合对象，可以通过 `'()` 得到空表
+
+在符号对象上，定义了 `eq?` 操作，判断两个是否是相同的符号。
+
+实现一个判断一个符号是否在链表中的过程，不存在返回 `false`，否则返回第一次出现的子表：
+
+```scheme
+(define (memq item alist)
+  (cond ((null? alist) false)
+        ((eq? item (car alist)) alist)
+        (else (memq item (cdr alist)))
+  )
+)
+
+;; e.g.
+(memq 'apple '(pear banana prune)) ; false
+(memq 'apple '(x (apple sauce) y apple pear)) ; (apple pear)
+```
+
+
+
+对抽象数据进行求导：
+
+对于 $\dfrac{dc}{dx}=0$，$\dfrac{dx}{dx}=1$，$\dfrac{d(u+v)}{dx}=\dfrac{du}{dx}+\dfrac{dv}{dx}$，$\dfrac{d(uv)}{dx} = u(\dfrac{dv}{dx}) + v(\dfrac{du}{dx})$ 这几条规则进行求导
+
+有下面的一些谓词：
+
+```scheme
+(define (variable? e) (symbol? x))
+(define (same_variable? v1 v2) 
+  (and (variable? v1) (variable? v2) (eq? v1 v2))
+)
+
+(define (make_sum a1 a2) (list '+ a1 a2))
+(define (sum? e)
+  (and (pair? e) (eq? (car e) '+))
+)
+(define (addend e) (cadr e))  ; e 的被加数，2th element
+(define (augend e) (caddr e)) ; e 的加数，3th element
+
+(define (make_product m1 m2) (list '* a1 a2))
+(define (product? e)
+  (and (pair? e) (eq? (car e) '*))
+)
+(define (multiplier e) (cadr e))
+(define (multiplicand e) (caddr e))
+```
+
+求导过程：
+
+```scheme
+(define (deriv exp var)
+  (cond ((number? exp) 0)
+        ((variable? exp) 
+         (if (same_variable? exp var)
+             1						      ; dx/dx
+             0                            ; dc/dx
+         )
+        )
+        ((sum? exp) 
+         (make_sum (deriv (addend exp) var)
+                   (deriv (augend exp) var))
+        )
+        ((product? exp)
+         (make_sum 
+           (make_product (multiplier exp)
+                         (deriv (multiplicand exp) var))
+           (make_product (multiplicand exp)
+                         (deriv (multiplier exp) var))
+         )
+        )
+        (else (error "unknown expression type -- DERIV" exp))
+  )
+)
+
+;; e.g. 
+(deriv '(+ x 3) 'x)  ; (+ 1 0)
 ```
 
 
