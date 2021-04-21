@@ -349,11 +349,11 @@ Lisp 的函数为 First-class function。
 
 讨论将对象组合起来，形成**复合数据**。复合数据的使用提供程序的模块性，提高程序设计语言的表达能力。
 
-还引进了 [S-表达式](https://zh.wikipedia.org/wiki/S-%E8%A1%A8%E8%BE%BE%E5%BC%8F)，进一步扩大了语言的表述能力。
+还有需要考虑的主要问题，将抽象作为克服复杂度的一种技术。数据抽象可以使我们在不同部分之间建立抽象屏障。
 
-还有讨论泛型操作，能够处理多种不同的数据类型。
+引进了**符号表达式**，进一步扩大了语言的表述能力。
 
-最后对面向数据的程序设计进行介绍。
+为了维持模块性，处理一个程序的不同部分可能采用不同表示的数据的问题引出了实现**通用型操作**(泛型？)的需要，对面向数据的程序设计进行介绍。
 
 
 
@@ -575,14 +575,14 @@ $\dfrac{n_x}{d_x} + \dfrac{n_y}{d_y} = \dfrac{n_x d_y + n_y d_x}{d_x d_y}$ ...
 
 
 
-对抽象数据进行求导：
+**对抽象数据进行求导**：
 
 对于 $\dfrac{dc}{dx}=0$，$\dfrac{dx}{dx}=1$，$\dfrac{d(u+v)}{dx}=\dfrac{du}{dx}+\dfrac{dv}{dx}$，$\dfrac{d(uv)}{dx} = u(\dfrac{dv}{dx}) + v(\dfrac{du}{dx})$ 这几条规则进行求导
 
 有下面的一些谓词：
 
 ```scheme
-(define (variable? e) (symbol? x))
+(define (variable? e) (symbol? e))
 (define (same_variable? v1 v2) 
   (and (variable? v1) (variable? v2) (eq? v1 v2))
 )
@@ -609,7 +609,7 @@ $\dfrac{n_x}{d_x} + \dfrac{n_y}{d_y} = \dfrac{n_x d_y + n_y d_x}{d_x d_y}$ ...
   (cond ((number? exp) 0)
         ((variable? exp) 
          (if (same_variable? exp var)
-             1						      ; dx/dx
+             1                            ; dx/dx
              0                            ; dc/dx
          )
         )
@@ -632,6 +632,116 @@ $\dfrac{n_x}{d_x} + \dfrac{n_y}{d_y} = \dfrac{n_x d_y + n_y d_x}{d_x d_y}$ ...
 ;; e.g. 
 (deriv '(+ x 3) 'x)  ; (+ 1 0)
 ```
+
+
+
+求导结果是未化简的，需要重写 `make_sum, make_product` 来化简结果：
+
+```scheme
+(define (make_sum a1 a2)
+  (cond ((=number? a1 0) a2)
+        ((=number? a2 0) a1)
+        ((and (number? a1) (number? a2)) (+ a1 a2))
+        (else (list '+ a1 a2))
+  )
+)
+
+(define (make_product m1 m2)
+  (cond ((=number? m1 0) 0)
+        ((=number? m2 0) 0)
+        ((=number? m1 1) m2)
+        ((=number? m2 1) m1)
+        ((and (number? m1) (number? m2) (* m1 m2)))
+        (else (list '* m1 m2))
+  ) 
+)
+```
+
+`=number?` 检查一个表达式是否等于给定的数值。
+
+
+
+**未排序集合的表示**：
+
+一种方式是用某元素的链表，其中任何元素的出现都不超过一次。
+
+```scheme
+;; contains
+(define (element_of_set? x set)
+  (cond ((null? set) false)
+        ((equal? x (car set)) true)
+        (else (element_of_set? x (cdr set)))
+  )
+)
+
+;; insert(head)
+(define (adjoin_set x set)
+  (if (element_of_set? x set)
+      set
+      (cons x set)
+  )
+)
+
+(define (intersection_set set1 set2)
+  (cond ((or (null? set1) (null? set2)) '())
+        ((element_of_set? (car set1) set2)
+         (cons (car set1) 
+               (intersection_set (cdr set1) set2)
+         )
+        )
+        (else (intersection_set (cdr set1) set2))
+  )
+)
+```
+
+
+
+**排序集合的表示**
+
+```scheme
+;; contains
+(define (element_of_set? x set)
+  (cond ((null? set) false)
+        ((= x (car set)) true)
+        ((< x (car set)) false)
+        (else (element_of_set? x (cdr set)))
+  )
+)
+
+(define (intersection_set set1 set2)
+  (if (or (null? set1) (null? set2))
+      '()
+      (let ((x1 (car set1)) ((x2 (car set2))))
+        (cond ((= x1 x2) (cons x1 (intersection_set (cdr set1) (cdr set2))))
+              ((< x1 x2) (intersection_set (cdr set1) set2))
+              ((< x2 x1) (intersection_set set1 (cdr set2)))
+        )
+      )
+  )
+)
+```
+
+
+
+## 4. 抽象数据的多重表示
+
+使用**数据抽象**，可以将一个程序中大部分描述与所操作数据对象的具体表示的选择无关。比如之前的有理数例子，将操作有理数的操作和有理数对象的具体表示分隔开来，构成了**抽象屏障**。数据抽象屏障是控制复杂度的强有力工具。
+
+而且需要去构造**通用型过程**，可以在不止一种数据表示上进行操作的过程。让它们在带有**类型标志**的数据对象上操作。
+
+
+
+**复数的表示**：
+
+复数可以以直角坐标系 `(real, image)` 或极坐标系 `(magnitude, angle)` 形式来表示
+
+我们需要构造一个系统，使得这两种表示都适用。需要一种方式，将直角坐标和极坐标两种形式区分开，可以借用**类型标志**
+
+在该实例中，用符号 `rectangular` 或 `polar` 来表示
+
+
+
+
 
 
 
