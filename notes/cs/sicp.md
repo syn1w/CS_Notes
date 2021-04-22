@@ -353,7 +353,7 @@ Lisp 的函数为 First-class function。
 
 引进了**符号表达式**，进一步扩大了语言的表述能力。
 
-为了维持模块性，处理一个程序的不同部分可能采用不同表示的数据的问题引出了实现**通用型操作**(泛型？)的需要，对面向数据的程序设计进行介绍。
+为了维持模块性，处理一个程序的不同部分可能采用不同表示的数据的问题引出了实现**通用型操作**(更类似于多态？)的需要，对面向数据的程序设计进行介绍。
 
 
 
@@ -739,9 +739,286 @@ $\dfrac{n_x}{d_x} + \dfrac{n_y}{d_y} = \dfrac{n_x d_y + n_y d_x}{d_x d_y}$ ...
 
 在该实例中，用符号 `rectangular` 或 `polar` 来表示
 
+```scheme
+;; data with type_tag
+(define (attach_tag type_tag contents) (cons type_tag contents))
+(define (type_tag datum)
+  (if (pair? datum)
+      (car datum)
+      (error "Bad tagged datum -- TYPE_TAG" datum)
+  )
+)
+
+(define (contents datum)
+  (if (pair? datum)
+      (cdr datum)
+      (error "Bad tagged datum -- CONTENTS" datum)
+  )
+)
+
+;; z = x + yi
+;; x(real) = rcos(A)
+;; y(image) = rsin(A)
+;; r aka. magnitude = sqrt(x^2 + y^2)
+;; A = atan(y/x) <=> atan(y, x) in scheme
+
+(define (rectangular? z) (eq? (type_tag z) 'rectangular))
+(define (polar? z) (eq? (type_tag z) 'polar))
+
+(define (square x) (* x x))
+
+;; rectangular
+(define (real_part_rectangular z) (car z))
+(define (imag_part_rectangular z) (cdr z))
+(define (magnitude_rectangular z)
+  (sqrt (+ (square (real_part_rectangular z))
+           (square (imag_part_rectangular z))
+        )
+  )
+)
+
+(define (angle_rectangular z)
+  (atan (imag_part_rectangular z)
+        (real_part_rectangular z)
+  )
+)
+
+(define (make_from_real_imag_rectangular x y)
+  (attach_tag 'rectangular (cons x y))
+)
+
+(define (make_from_mag_ang_rectangular r a)
+  (attach_tag 'rectangular 
+              (cons (* r (cos a)) (* r (sin a)))
+  )
+)
+
+;; polar
+(define (magnitude_polar z) (car z))
+(define (angle_polar z) (cdr z))
+(define (real_part_polar z)
+  (* (magnitude_polar z) (cos (angle_polar z)))
+)
+(define (imag_part_polar z)
+  (* (magnitude_polar z) (sin (angle_polar z)))
+)
+
+(define (make_from_mag_ang_polar r a)
+  (attach_tag 'polar (cons r a))
+)
+
+(define (make_from_real_imag_polar x y)
+  (attach_tag 'polar 
+              (cons (sqrt (+ (square x) (square y))))
+  )
+)
+
+(define (real_part z)
+  (cond ((rectangular? z) (real_part_rectangular (contents z)))
+        ((polar? z) (real_part_polar (contents z)))
+        (else (error "Unknown type -- REAL_PART" z))
+  )
+)
+
+(define (imag_part z)
+  (cond ((rectangular? z) (imag_part_rectangular (contents z)))
+        ((polar? z) (imag_part_polar (contents z)))
+        (else (error "Unknown type -- IMAG_PART" z))
+  )
+)
+
+(define (magnitude z)
+  (cond ((rectangular? z) (magnitude_rectangular (contents z)))
+        ((polar? z) (magnitude_polar (contents z)))
+        (else (error "Unknown type -- MAGNITUDE" z))
+  )
+)
+
+(define (angle z)
+  (cond ((rectangular? z) (angle_rectangular (contents z)))
+        ((polar? z) (angle_polar (contents z)))
+        (else (error "Unknown type -- ANGLE" z))
+  )
+)
+
+(define (make_from_real_imag x y) (make_from_real_imag_rectangular x y))
+(define (make_from_mag_ang r a) (make_from_mag_ang_polar x y))
+
+(define (add_complex z1 z2)
+  (make_from_real_imag (+ (real_part z1) (real_part z2))
+                       (+ (imag_part z1) (imag_part z2))
+  )
+)
+
+; ...
+```
 
 
 
+上述的设计有一些缺点：
+
+- 通用型接口(`real_part, imag_part, magnitude, angle`) 必须知道所有的类型标注
+- 如果要添加一种表示方法，需要在每个接口过程中添加一个条件子句
+- 各种不同的表示方法融合到整个系统，不能存在两个相同名称的函数，需要修改原先函数的名称
+
+
+
+考虑使用数据导向的程序设计，以一种表格的形式：
+
+|              |       polar        |          rectangular          |
+| :----------: | :----------------: | :---------------------------: |
+| `real_part`  | `real_part_polar`  |    `real_part_rectangular`    |
+| `imag_part`  | `image_part_polar` |    `imag_part_rectangular`    |
+| `mangnitude` | `mangnitude_polar` | `mangnitude_part_rectangular` |
+|   `angle`    | `angle_part_polar` |   `angle_part_rectangular`    |
+
+假定有两个过程操作这一表格：
+
+`(put <op> <type> <item>)`
+
+`(get <op> <type>)`
+
+上述过程可以重构为：
+
+```scheme
+;; make_table
+;; see https://mitpress.mit.edu/sites/default/files/sicp/full-text/book/book-Z-H-22.html#%_sec_3.3.3
+(define (make-table)
+  (let ((local-table (list '*table*)))
+    (define (lookup key-1 key-2)
+      (let ((subtable (assoc key-1 (cdr local-table))))
+        (if subtable
+            (let ((record (assoc key-2 (cdr subtable))))
+              (if record
+                  (cdr record)
+                  false))
+            false
+        )
+      )
+    )
+    (define (insert! key-1 key-2 value)
+      (let ((subtable (assoc key-1 (cdr local-table))))
+        (if subtable
+            (let ((record (assoc key-2 (cdr subtable))))
+              (if record
+                  (set-cdr! record value)
+                  (set-cdr! subtable
+                            (cons (cons key-2 value)
+                                  (cdr subtable)))))
+            (set-cdr! local-table
+                      (cons (list key-1
+                                  (cons key-2 value))
+                            (cdr local-table)))
+        )
+      )
+      'ok
+    )
+    (define (dispatch m)
+      (cond ((eq? m 'lookup-proc) lookup)
+            ((eq? m 'insert-proc!) insert!)
+            (else (error "Unknown operation - TABLE" m)))
+    )
+    dispatch
+  )
+)
+
+(define operation-table (make-table))
+(define get (operation-table 'lookup-proc))
+(define put (operation-table 'insert-proc!))
+
+
+;; data with type_tag
+(define (attach_tag type_tag contents) (cons type_tag contents))
+(define (type_tag datum)
+  (if (pair? datum)
+      (car datum)
+      (error "Bad tagged datum -- TYPE_TAG" datum)
+  )
+)
+
+(define (contents datum)
+  (if (pair? datum)
+      (cdr datum)
+      (error "Bad tagged datum -- CONTENTS" datum)
+  )
+)
+
+;; rectangular
+(define (install_rectangular_package)
+  ;; internal procedures
+  (define (real_part z) (car z))
+  (define (imag_part z) (cdr z))
+  (define (make_from_real_imag x y) (cons x y))
+  (define (magnitude z) 
+    (sqrt (+ (square (real_part z)) (square (imag_part z))))
+  )
+  (define (angle z)
+    (atan (imag_part z) (real_part z))
+  )
+  (define (make_from_mag_ang r a)
+    (cons (* r (cos a)) (* r (sin a)))
+  )
+
+  ;; interface
+  (define (tag x) (attach_tag 'rectangular x))
+  (put 'real_part '(rectangular) real_part)         ; ^1
+  (put 'imag_part '(rectangular) imag_part)
+  (put 'magnitude '(rectangular) magnitude)
+  (put 'angle '(rectangular) angle)
+  (put 'make_from_real_imag 'rectangular            ; ^2
+    (lambda (x y) (tag (make_from_real_imag x y)))
+  )
+  (put 'make_from_mag_ang 'rectangular 
+    (lambda (r a) (tag (make_from_mag_ang r a)))
+  )
+)
+
+;; polar
+
+(install_rectangular_package)
+
+(define (apply_generic op . args)         ; <~> varargs
+  (let ((type_tags (map type_tag args)))  ; type_tags = map(type_tag, args)
+    (let ((proc (get op type_tags)))      ; proc = get(op, type_tags)
+      (if proc
+        (apply proc (map contents args))  ; proc(map(contents, args))
+        (error "No method for these types -- APPLY_GENERIC"
+          (list op type_tags)
+        )
+      )
+    )
+  )
+)
+
+(define (real_part z) (apply_generic 'real_part z))
+; other operator...
+(define (make_from_real_imag x y)
+  ((get 'make_from_real_imag 'rectangular) x y)
+)
+
+(define z (make_from_real_imag 3 4))
+(display (real_part z))
+```
+
+
+
+关于上面代码 `install_rectangular_package` 标记 1 和 2 处，一个是 `'(rectangular)`，另一个是 `'rectangular`，对于各种操作来说，`key-2` 是 `args` 的 `type_tags` 列表，所以加了括号；对于构造函数而已，该处并不需要 `type_tags` 列表，仅仅一个标记类型即可，所以没有使用括号。
+
+还可以改为消息传递风格的代码：
+
+```scheme
+(define (make_from_real_imag x y)
+  (define (dispatch op)
+    (cond ((eq? op 'real_part) x)
+          ((eq? op 'imag_part) y)
+          ((eq? op 'magnitude) (sqrt (+ (square x) (square y))))
+          ((eq? op 'angle) (atan y x))
+          (else (error "Unknown op -- MAKE_FROM_REAL_IMAG", op))
+    )
+  )
+  dispatch
+)
+```
 
 
 
