@@ -353,7 +353,7 @@ Lisp 的函数为 First-class function。
 
 引进了**符号表达式**，进一步扩大了语言的表述能力。
 
-为了维持模块性，处理一个程序的不同部分可能采用不同表示的数据的问题引出了实现**通用型操作**(更类似于多态？)的需要，对面向数据的程序设计进行介绍。
+为了维持模块性，处理一个程序的不同部分可能采用不同表示的数据的问题引出了实现**通用型操作**(类似于多态和泛型？)的需要，对面向数据的程序设计进行介绍。
 
 
 
@@ -1019,6 +1019,79 @@ $\dfrac{n_x}{d_x} + \dfrac{n_y}{d_y} = \dfrac{n_x d_y + n_y d_x}{d_x d_y}$ ...
   dispatch
 )
 ```
+
+
+
+## 5. 通用型操作
+
+第 4 节主要介绍了一种数据对象以多种方式来表示，使用通用的操作接口，将描述数据操作的代码连接到几种不同的表示上。
+
+该节主要针对不同参数类型的通用型操作（类似泛型？）。比如 `add/sub/mul/div` 能应用到有理数、常规数值、复数上。
+
+```scheme
+;; scheme number package
+(define (install_scheme_number_package)
+  (define (tag x) (attach_tag 'scheme_number x))
+  (put 'add '(scheme_number scheme_number) (lambda (x y) (tag (+ x y))))
+  ; ...
+  (put 'make 'scheme_number (lambda (x) (tag x)))
+  'done
+)
+
+(install_scheme_number_package)
+
+(define (make_scheme_number n)
+  ((get 'make 'scheme_number) n)
+)
+
+
+;; rational package
+(define (install_rational_package)
+  ; internal
+  (define (numer x) (car x))
+  (define (demon x) (cdr x))
+  (define (make_rat n d)
+    (let ((g (gcd n d)))
+      (cons (/ n g) (/ d g))
+    )
+  )
+
+  (define (add_rat x y)
+    (make_rat (+ (* (number x) (demon y))
+                 (* (number y) (demon x))
+              )
+              (* (demon x) (demon y))
+    )
+  )
+  ; ...
+  
+  ; interface
+  (define (tag x) (attach_tag 'rational x))
+  (put 'add '(rational rational) (lambda (x y) (tag (add_rat x y))))
+  ; ...
+  (put 'make 'rational ((lambda (n d) (tag (make_rat n d)))))
+)
+
+(install_rational_package)
+
+(define (make_rational n d)
+  ((get 'make 'rational) n d)
+)
+
+(define (add x y) (apply_generic 'add x y))
+```
+
+
+
+强制类型转换：
+
+```scheme
+(define (scheme_number->complex n)
+  (make_complex_from_real_imag (contents n) 0)
+)
+```
+
+接下来对类型的层次结构进行了讨论，有点类似继承？
 
 
 
