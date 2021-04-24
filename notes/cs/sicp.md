@@ -1095,3 +1095,134 @@ $\dfrac{n_x}{d_x} + \dfrac{n_y}{d_y} = \dfrac{n_x d_y + n_y d_x}{d_x d_y}$ ...
 
 
 
+# 三、模块化、对象、状态
+
+前两章分别介绍了过程的抽象和数据的抽象，将基本过程和基本数据组合起来，构造出复合的实体。在构建大型系统的复杂问题上，抽象起着至关重要的作用。（可以分为不同的抽象层，将一个大问题，逐渐分层为不同的小问题。）
+
+不过在设计程序中，我们还需要一些组织原则，能够指导我们完成系统的整体设计，特别是需要一些能够构造模块化大型系统的策略。（自然地划分一些具有内聚力的部分，使这些部分分别进行开发和维护）
+
+这一章中，主要研究两种策略：
+
+- 面向对象的程序设计：将注意力集中到**对象**上，将一个大型系统看成一批对象，它们的行为随着时间（状态）的改变而不断变化。
+- 面向数据流的程序设计：将注意力集中到流过系统的**信息流**上。
+
+
+
+## 1. 赋值和局部状态
+
+在面向对象的程序设计中，一个系统由许多对象组成，这些对象极少是完全独立的。每个对象能够通过交互作用，影响其他对象的状态。每一个计算对象有自己的一些**局部状态变量**，用于描述对象的状态。
+
+scheme 中的赋值运算符：
+
+```scheme
+(set! <name> <new-value>)
+```
+
+`begin` 表达式，按照 `exp1, exp2, ..., expk` 的顺序依次求值，最后 `expk` 的值作为 `begin` 的值返回：
+
+```scheme
+(begin <exp1> <exp2> ... <expk>)
+```
+
+可以使用 `begin` + `set!` 来实现赋值操作符返回赋值后的值的效果。
+
+
+
+取钱实例：
+
+```scheme
+(define withdraw
+  (let ((balance 100))
+    (lambda (amount)
+      (if (>= balance amount)
+        (begin (set! balance (- balance amount))
+               balance)
+        "Insufficient funds"
+      )
+    )
+  )
+)
+
+(withdraw 25)  ; 75
+(withdraw 25)  ; 50
+(withdraw 60)  ; "Insufficient funds"
+(withdraw 10)  ; 40
+```
+
+在语言中引入赋值，代换模型就不再适合作为过程应用的模型了（有了状态，也就是多次调用 `withdraw` 返回值不一样）。
+
+代换模型是先求出各子表达式的值，找到要调用的过程的定义，用求出的实际参数代换过程体里的形式参数，再对过程体进行求值，本质上一种使用等价性的表达式的拆分机制
+
+我们需要提出一个新的模型，这一模型包括对赋值语句和局部变量的解释。
+
+
+
+接下来看几种取钱的变形：
+
+```scheme
+(define (make_withdraw balance)
+  (lambda (amount)
+    (if (>= balance amount)
+        (begin (set! balance (- balance amount))
+               balance)
+        "Insufficient funds"
+    )
+  )
+)
+
+(define w1 (make_withdraw 100))
+(define w2 (make_withdraw 100))
+
+(w1 25)
+(w2 25)
+```
+
+这个过程就类似于创建了两个对象，之后调用 `withdraw` 方法
+
+
+
+实现取钱和存钱两个操作：
+
+```scheme
+(define (make_account balance)
+  (define (withdraw amount)
+    (if (>= balance amount)
+        (begin (set! balance (- balance amount))
+               balance)
+        "Insufficient funds"
+    )
+  )
+
+  (define (deposit amount)
+    (set! balance (+ balance amount))
+    balance
+  )
+
+  (define (dispatch m)
+    (cond ((eq? m 'withdraw) withdraw)
+          ((eq? m 'deposit) deposit)
+          (else (error "Unknown request -- MAKE_ACCOUNT" m))
+    )
+  )
+  dispatch
+)
+
+(define acc1 (make_account 100))
+((acc 'withdraw) 50) ; 50
+((acc 'deposit) 40)  ; 90
+```
+
+
+
+将赋值引入到程序设计语言，可以将系统看作一组带有局部状态的对象，也是一种维护模块化强有力的技术。
+
+但是引入之后，不再能用代换模型解释了。
+
+只要不用赋值操作，以同样参数对同一过程求值两次一定是同样的结果，不用任何赋值的程序设计被称为**函数式程序设计**。
+
+从本质来说，代换的最终基础是，这一语言中的符号不过是作为值得名称，一旦引入和赋值和变量，一个变量就不再是简单的名称了。
+
+如果一个语言支持在表达式里“同一的东西可以相互替换”的概念，这样的替换不会改变表达式的值，这个原因就称为**引用透明性**，包含赋值之后，也就打破了引用透明性。
+
+与函数式编程语言相对应，广泛使用赋值、变量的是**命令式编程语言**。
+
