@@ -1226,3 +1226,141 @@ scheme 中的赋值运算符：
 
 与函数式编程语言相对应，广泛使用赋值、变量的是**命令式编程语言**。
 
+
+
+## 2. 求值的环境模型
+
+编程语言在引入赋值和变量的概念之后，代换模型就不再适合。此时一个变量必须以某种方式指定一个位置（内存地址），相应的值可以存储在那里，这种位置将维持在称为**环境**的结构中。
+
+一个环境是框架（翻译为栈帧是不是更好？作用域）的的一个序列，每个框架中包含着一些**约束**的表格，这些约束将一个变量名称关联到相应的值，每个框架还包含一个指针，指向这个框架的**外围环境**（外围作用域）。如果一个框架没有外围环境，则称该框架是全局的。
+
+
+
+## 3. 用变动数据做模拟
+
+**变动的表结构**：
+
+`set-car!` 接受两个参数，第一个参数是序对，将 `car` 指针指向第二个参数的地址，返回值依赖于实现。`set-cdr!` 类似。
+
+比如 x 为 `((a b) c d)`，y 为 `(e f)`，使用 `(set-car! x y)`，x 结构变为 `((e f) c d)`  
+
+`cons` 实现：
+
+```scheme
+(define (cons x y)
+  (let ((new (get-new-pair)))
+    (set-car! new x)
+    (set-cdr! new y)
+    new
+  )
+)
+```
+
+
+
+**共享和相等**：
+
+考虑下面的例子：
+
+```scheme
+(define x (list 'a 'b))
+(define z1 (cons x x))
+```
+
+`z1` 的 `car` 和 `cdr` 指针都指向（共享）同一个对象 `x`，之后修改 `x`，`z1` 的值会发生变化。
+
+
+
+```scheme
+(define z2 (cons (list 'a 'b) (list 'a 'b)))
+```
+
+虽然 `z1` 和 `z2` 的值相等，但是 `z2` 的 `car` 和 `cdr` 指针指向的两个不同的对象。
+
+
+
+检查是否共享(两个符号是否相同或是否为同一对象或两个指针是否相等)的的一种方式是使用谓词 `eq?`，利用共享结构可以扩充表示数据结构的范围，但是引入共享也会带来危险。使用 `set-car!` 和 `set-cdr!` 需要小心，注意数据结构的共享情况。
+
+
+
+**队列的表示**：
+
+```scheme
+(make-queue)            ; constructor
+(define q (make-queue))
+
+(empty-queue? <queue>)  ; empty
+(front-queue <queue>)   ; front
+(insert-queue! <queue> <item>) ; push
+(delete-queue! <queue>)        ; pop
+```
+
+具体实现：
+
+```scheme
+(define (front_ptr queue) (car queue))
+(define (rear_ptr queue) (cdr queue))
+
+(define (set_front_ptr! queue item) (set-car! queue item))
+(define (set_rear_ptr! queue item) (set-cdr! queue item))
+
+(define (empty_queue? queue) (null? (front_ptr queue)))
+
+(define (make_queue) (cons '() '()))
+(define (front_queue queue)
+  (if (empty_queue? queue)
+    (error "FRONT called with an empty queue" queue)
+    (car (front_ptr queue))
+  )
+)
+
+(define (insert_queue! queue item)
+  (let ((new_pair (cons item '() )))
+    (cond ((empty_queue? queue)
+            (set_front_ptr! queue new_pair)
+            (set_rear_ptr! queue new_pair)
+            queue
+          )
+          (else
+            (set-cdr! (rear_ptr queue) new_pair)  ; insert to rear
+            (set_rear_ptr! queue new_pair)
+            queue
+          )
+    )
+  )
+)
+
+(define (delete_queue! queue)
+  (cond ((empty_queue? queue) 
+          (error "DELETE! called with an empty queue" queue)
+        )
+        (else
+          (set_front_ptr! queue (cdr (front_ptr queue)))
+          queue
+        )
+  )
+)
+
+(define (print_queue queue)
+  (display (car queue))
+)
+```
+
+
+
+接下来还有表格数据结构的表示以及数字电路模拟器实例，这两个实例不再深入探讨。
+
+
+
+**约束的传播**
+
+计算机程序总被组织为一种单向的计算，对一些事先给定的参数执行某些操作，产出所需要的操作。
+
+描述了一种语言设计，这种语言将基于各种关系进行工作，这一语言中基本元素就是**基本约束**，描述了不同量之间的某种特定关系。例如 `(adder a b c)` 描述 `a + b = c` 的约束关系，`(multiplier x y z)` 描述了 `xy = z` 的约束关系，`(constant 3.14 pi)`  描述了 `pi` 的值永远是 `3.14`。
+
+scheme 提供了一种方法，可以构造**约束网络**，约束通过**连接器**连接起来。连接器是一种对象，可以保存一个值，使之能参与一个或多个约束。
+
+比如华氏温度和摄氏温度之间的关系是：`9C = 5(F - 32)`
+
+![约束网络表示关系 `9C=5(F-32)`](../../imgs/cs/sicp3_1.png)
+
