@@ -1574,10 +1574,45 @@ scheme 提供了一种方法，可以构造**约束网络**，约束通过**连�
            (process-forget-value)
           )
           (else "Unknown request -- PROBE" request)
-    )
-    (connect connector me)
+    )  
   )
+  
+  (connect connector me)
   me
 )
+
+(define (celsius_fahrenheit_converter c f)
+  (let ((u (make-connector))
+        (v (make-connector))
+        (w (make-connector))
+        (x (make-connector))
+        (y (make-connector))
+       )
+    (constant 9 w)
+    (multiplier c w u)  ; 9c = u
+    (constant 5 x)
+    (constant 32 y)
+    (adder v y f)       ; v + 32 = f => v = f - 32
+    (multiplier x v u)  ; 5v = u => 5(f-32) = 9c
+    'ok
+  )
+)
+
+(define C (make-connector))
+(define F (make-connector))
+(celsius_fahrenheit_converter C F)
+
+(probe "Celsius temp" C)
+(probe "Fahrenheit temp" F)
+
+(set-value! C 25 'user)
 ```
+
+上述小型的约束系统，进一步对消息传递风格进行了灵活的应用，类似于回调的方式进行编程
+
+首先构建约束关系(constant、adder、multiplier 等)，使用 `connect` 把 `connector` 和某个约束(过程)连接起来
+
+当对一个 `connector` 设置值时，就会调用 `connector` 的 `set-my-value` 过程，如果有值且和新值不相等，报出冲突的错误。如果没有值就设置新值，然后遍历 `constraints`，使用 `inform-about-value` 对每个约束进行通知(向每个过程发送 `'I-have-a-value'` 消息)，然后调用 `process-new-value` 进行处理出现新值的情况。失去值也是相似的过程。
+
+
 
