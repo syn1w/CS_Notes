@@ -1616,3 +1616,79 @@ scheme 提供了一种方法，可以构造**约束网络**，约束通过**连�
 
 
 
+## 4. 并发：时间是一个本质问题
+
+注：concurrency 中文版书这里翻译为并发，但是依据下文，构建并发并不太恰当，觉得并发和并行应该更恰当一些，但是下文并没有修改原文的并发。
+
+使用具有内部状态的计算对象作为模拟工具有非常大的威力，但是也丢失了引用透明性，抛弃了代换模型
+
+引入赋值之后，就必须得承认时间在所用的计算模型中的位置。赋值语句的执行描绘出有关值变化的一些时刻，对一个表达式的求值结果，不但依赖于该表达式本身，还依赖于在这些时刻之前还是之后。
+
+在现实世界里的对象并不是一次一个地发生变化，我们看到它们总是并发的。在并发的情况下，由赋值引入的复杂性问题将变得更加严重了。
+
+几个进程或线程共享同一状态变量。多个进程或线程可能同时试图去读写这种共享的状态。
+
+
+
+对并发的可能的限制是：
+
+- 修改任意共享状态变量的两个操作不能同时发生。这样做可能会严重影响效率。
+- 保证并发系统产生的结果和各个进程按照某种方式顺序运行出的结果完全一致。
+
+
+
+设计并发系统时，对于某种由顺序要求的事件可以使用**串行化**方式来解决
+
+scheme 提供了一些机制处理并行以及串行：
+
+```scheme
+(parallel-execute <p1> <p2> ... <pn>)
+
+; e.g.
+(define x 10)
+(parallel-execute (lambda () (set! x (* x x)))
+                  (lambda () (set! x (+ x 1)))
+)
+
+; possible x = 11, 100, 101, 110, 121
+```
+
+```scheme
+(make-serializer)
+
+(define x 10)
+(define s (make-serializer))
+(parallel-execute (s (lambda () (set! x (* x x))))
+                  (s (lambda () (set! x (+ x 1))))
+)
+; possible x = 101, 121
+```
+
+使用 `serializer`，其中 `p1` 和 `p2` 不会交错执行，要么先 `p1` 后 `p2`，要么先 `p2` 后 `p1`，最后只有两种结果
+
+`serializer` 通过 `mutex` 实现
+
+```scheme
+(define (make-serializer)
+  (let ((mutex (make-mutex)))
+    (lambda (p)
+      (define (serializer-p . args)
+        (mutex 'acquire)
+        (let ((val (apply p args)))
+          (mutex 'release)
+          val
+        )
+      )
+
+      serializer-p
+    )
+  )
+)
+```
+
+
+
+但是需要注意死锁问题，以某种特定顺序执行避免死锁
+
+
+
