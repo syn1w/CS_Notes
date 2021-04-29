@@ -1692,3 +1692,229 @@ scheme 提供了一些机制处理并行以及串行：
 
 
 
+## 5. 流
+
+使用**流**数据结构，探索对状态模拟的另一条途径。
+
+考虑以数学函数思考这个问题，可以将一个量 `x` 随着时间的变化的行为，描述为一个时间函数 `x(t)`，需要关注的是这些值的整个时间史，不需要强调其中的变化，因为函数本身没有变化。用离散的步长去度量时间。就可以用一个有穷的序列去模拟时间函数。流就是一个序列。引入一种**延迟求值**的方法，能够用流表示非常长的序列。
+
+**流作为延迟求值的链表**
+
+序列可以作为组合程序的一种标准接口，已经对序列构造出功能强大的抽象机制，比如 `map, filter, accumulate`
+
+但是如果将序列表示为链表，获得这些优雅的结果将付出严重的性能代价，因为工作流程的每一步，都需要构造和复制各种数据结构。
+
+比如：
+
+```scheme
+(define (sum_primes1 a b)
+  (define (iter count accum)
+    (cond ((> count b) accum)
+          ((prime? count) (iter (+ count 1) (+ count accum)))
+          (else (iter (+ count 1) accum))
+    )
+  )
+
+  (iter a 0)
+)
+
+(define (sum_primes2 a b)
+  (accumulate +
+              0
+              (filter prime? (enumerate-interval a b))
+  )
+)
+```
+
+第二个程序需要构造出区间的所有整数的序列，之后用 `filter` 过滤，最后再把过滤结果累加。
+
+流使我们使用各种序列操作，但又不会带来将序列作为链表去操作而引起的代价。
+
+从表面上看，流也是链表。但是对它们操作的过程的名称不同：
+
+```scheme
+(cons-stream <a> <b>)
+
+;; <=>
+(cons <a> (delay <b>))
+
+(define (stream-car stream) (car stream))
+(define (stream-cdr stream) (force (cdr stream)))
+```
+
+流的实现基于 `delay` 的特殊形式，对于 `(delay <exp>)` 表达式，将不会立即对 `exp` 进行求值，而是返回一个延迟求值的对象，可以看作在未来的某个时间求值 `exp` 的允诺。和 `delay` 相对应的是 `force`，也就是迫使 `delay` 表达式完成它允诺的求值。
+
+空的流对象为 `the-empty-stream`，在 MIT-scheme 中实现为 `'()`，这个对象可以使用 `stream-null?` 进行判断。
+
+在流上的操作：
+
+```scheme
+(define (stream-ref s n)  ; s[n]
+  (if (= n 0)
+      (stream-car s)
+      (stream-ref (stream-cdr s) (- n 1))
+  )
+)
+
+(define (stream-map proc s)
+  (if (stream-null? s)
+      the-empty-stream
+      (cons-stream (proc (stream-car s))
+                   (stream-map proc (stream-cdr s))
+      )
+  )
+)
+
+(define (stream-for-each proc s)
+  (if (stream-null? s)
+      'done
+      (begin (proc (stream-car s))
+             (stream-for-each proc (stream-cdr s))
+      )
+  )
+)
+```
+
+
+
+再回到刚刚求区间内求素数的程序：
+
+```scheme
+(stream-car 
+  (stream-cdr
+    (stream-filter prime? (stream-enumerate-interval a b))
+  )
+)
+
+(define (stream-enumerate-interval a b)
+  (if (> a b)
+      the-empty-stream
+      (cons-stream a (stream-enumerate-interval (+ a 1) b))
+  )
+)
+
+(define (stream-filter pred stream)
+  (cond ((stream-null? stream) the-empty-stream)
+        ((pred (stream-car stream))
+          (cons-stream (stream-car stream)
+                       (stream-filter pred (stream-cdr stream))
+          )
+        )
+        (else (stream-filter pred (stream-cdr stream)))
+  )
+)
+```
+
+
+
+`delay` 和 `force` 的实现：
+
+```scheme
+(define (memo-proc proc)
+  (let ((already-run? false) (result false))
+    (lambda () 
+      (if (not already-run?)
+        (begin (set! result (proc))
+               (set! already-run? true)
+               result
+        )
+        result
+      )
+    )
+  )
+)
+
+(define (delay exp)
+  (memo-proc (lambda () exp))
+)
+
+(define (force delayed-object)
+  (delayed-object)
+)
+```
+
+`delay` 返回了一个过程(`delayed-object`)，对 `delayed-object` 使用 `force` 时，就相当于调用 `delay` 产生的过程
+
+
+
+**无穷流**
+
+例如正整数流：
+
+```scheme
+(define (integers-starting-from n)
+  (cons-stream n (integers-starting-from (+ n 1)))
+)
+
+(define integers (integers-starting-from 1))
+```
+
+`integers` 是一个流序对，其中 `car` 是 1，其 `cdr` 为从 2 开始的流序对，这是一个无穷长的流。
+
+我们可以定义其他的无穷流，比如不能被 7 整除的正整数流：
+
+```scheme
+(define (divisible? x y) (= (remainder x y) 0))
+
+(define no-sevens
+  (stream-filter (lambda (x) (not (divisible? x 7)))
+                 integers
+  )
+)
+```
+
+斐波那契数列流：
+
+```scheme
+(define (fibgen a b)
+  (cons-stream a (fibgen b (+ a b)))
+)
+
+(define fibs (fibgen 0 1))
+```
+
+
+
+**隐式定义流**、
+
+上面的过程都是通过描述生存过程来定义流。还可以通过延时求值隐式定义流。比如：
+
+```scheme
+(define ones (cons-stream 1 ones))
+```
+
+还可以通过 `add-streams` 等操作，可以做到一些有趣的事情：
+
+```scheme
+(define (add-stream s1 s2)
+  (stream-map (+ s1 s2))
+)
+
+(define integers (cons-stream 1 (add-stream ones integers)))
+
+(define fibs
+  (cons-stream 0
+               (cons-stream 1
+                            (add-stream (stream-cdr fibs)
+                                        fibs)
+               )
+  )
+)
+```
+
+
+
+带有延时求值的流可能成为一种强大的模拟工具， 能够提供局部状态和赋值的许多效益，还避免将引入赋值所带来的一些理论困难。
+
+可以将反复的迭代操作表示为流操作，比如原来的牛顿法求平方根、迭代求 pi 值。
+
+
+
+**函数式程序的模块化和对象的模块化**
+
+引入赋值的主要收益是增强系统的模块化，把一个大的系统某些部分进行封装（隐藏到局部变量中）。
+
+流模型可以提供等价的模块化，同时又不需要赋值。
+
+流为模拟具有内部状态的对象提供了另一种方式，用**流去模拟一个变化的量**。
+
