@@ -1918,3 +1918,176 @@ scheme 提供了一些机制处理并行以及串行：
 
 流为模拟具有内部状态的对象提供了另一种方式，用**流去模拟一个变化的量**。
 
+
+
+
+
+# 四、元语言抽象
+
+为了设法控制设计的复杂度，使用抽象技术。将基本元素组合起来，形成复合元素，从复合元素出发通过抽象形成更高一层的构件，并通过采取某些适当的关于系统结构的观点，保持系统的模块性。
+
+为了阐述这些技术，之前的内容一直使用 Lisp 作为语言来描述计算过程。然而随着问题变得更加复杂，发现 Lisp 以及任何一种确定的程序语言都不足以满足我们的需求。需要转向新的语言，以便能有效表达自己的想法。通常使用一种新语言提升处理复杂问题的能力。
+
+程序设计需要涉及的多种语言：
+
+- 机器语言，数据和指令的一系列二进制表示
+- 高级语言，构筑在机器语言之上，提供了一些组合和抽象机制，更适合大规模系统组织
+
+
+
+**元语言抽象**就是建立新的语言，在程序设计领域非常重要。不仅能设计新的语言，还可以通过构造**求值器（解释器）**的方式实现这些语言。
+
+程序设计中最基本的一点思想：求值器决定了一个程序设计语言中各种表达式的意义，而且它本身也不过是另一个程序。
+
+
+
+这一章讨论在一些语言的基础上构造新的语言的技术。将使用 Lisp 为基础，将各种求值器实现为一些 Lisp 过程。
+
+第一步构造一个针对 Lisp 本身的求值器。对这个求值器进行了一个简化。
+
+
+
+## 1. 元循环求值器
+
+把 Lisp 求值器（解释器）实现为一个 Lisp 程序，看似是一个循环矛盾(鸡生蛋蛋生鸡)定义。这种做法叫做**元循环**（**自举**）
+
+元循环求值器模型：
+
+- 求值一个组合式，首先求值其中的子表达式，然后将子表达式的值用于计算组合式
+- 将一个复合过程应用于一系列的实际参数时，将一个新的环境里计算这个函数的函数体。
+
+求值器的实现依赖于一些定义了被求值表达式的语法形式的过程。
+
+
+
+
+
+**求值器内核**
+
+求值过程可以描述为 `eval` 和 `apply` 之间的相互作用。
+
+`eval` 的参数是一个表达式和一个环境，`eval` 对表达式进行分类，针对每类表达式都有一个谓词完成相应的检测，有一套抽象方法选择表达式的各个部分。
+
+对于各种基本表达式：
+
+- 对于自求值的表达式，例如数值字面量，之间返回这个表达式本身
+- `eval` 在环境中查找变量，返回它们的值
+
+特殊表达式：
+
+- 对于符号表达式，返回被引的表达式（符号）
+- 对于变量的赋值，需要递归调用 `eval` 计算出需要关联于这个变量的新值，并修改环境
+- `if` 表达式根据谓词真假返回不同的部分
+- `lambda` 表达式会转换为一个可以应用的过程，方式就是将 `lambda` 表达式所描述的参数列表和函数体与相应的求值环境包装起来
+- `begin` 表达式按顺序求值其中的一系列表达式，并返回最后一个表达式的值
+- `cond` 表达式被转换为一组嵌套的 `if` 表达式，而后求值
+- 过程调用表达式，递归使用 `eval` 计算实际参数，然后将过程和参数送入 `apply`
+
+
+
+`eval` 和 `apply`的实现：
+
+```scheme
+(define (eval exp env)
+  (cond ((self-evaluating? exp) exp)
+        ((variable? exp) (lookup-variable-value exp env))
+        ((quoted? exp) (text-of-quotation exp))
+        ((assignment? exp) (eval-assignment exp env))
+        ((definition? exp) (eval-definition exp env))
+        ((if? exp) (eval-if exp env))
+        ((lambda? exp) (make-procedure (lambda-parameters exp) 
+                                       (lambda-body exp)
+                                       env
+                       )
+        )
+        ((begin? exp) (eval-sequence (begin-actions exp) env))
+        ((cond? exp) (eval (cond->if exp) env))
+        ((application? exp)
+          (apply (eval (operator exp) env)
+                 (list-of-values (operands exp) env)
+          )
+        )
+        (else (error "Unknown expression type -- EVAL" exp))
+  )
+)
+
+(define (apply procedure arguments)
+  (cond ((primitive-procedure? procedure)
+    (apply-primitive-procedure procedure arguments))
+  )
+  ((compound-procedure? procedure)
+    (eval-sequence
+      (procedure-body procedure)
+      (extend-environment
+        (procedure-parameters procedure)
+        arguments
+        (procedure-environment procedure)
+      )
+    )
+  )
+  (else (error "Unknown procedure type -- APPLY" procedure))
+)
+```
+
+在 `eval` 实现中，使用 `cond` 分情况对各种类型的表达式进行分析。缺点是如果加入新的表达式类型，必须编辑 `eval` 的定义。在大部分的 Lisp 实现中，对表达式类型使用了数据导向方式，增加新的表达式类型，不必修改 `eval` 实现。
+
+
+
+处理过程参数：
+
+```scheme
+(define (list-of-values exps env)
+  (if (no-operands? exps)
+    '()
+    (cons (eval (first-operand exps) env)
+          (list-of-values (rest-operands exps) env)
+    )
+  )
+)
+```
+
+`if` 表达式：
+
+```scheme
+(define (eval-if exp env)
+  (if (true? (eval (if-predicate exp) env))
+    (eval (if-consequent exp) env)
+    (eval (if-alternative exp) env)
+  )
+)
+```
+
+`begin` 表达式：
+
+```scheme
+(define (eval-sequence exps env)
+  (cond ((last-exp? exps) (eval first-exp exps) env)
+        (else (eval (first-exp exps) env)
+              (eval-sequence (rest-exps) env)
+        )
+  )
+)
+```
+
+赋值和定义表达式：
+
+```scheme
+(define (eval-assignment exp env)
+  (set-variable-value! (assignment-value exp)
+                       (eval (assignment-value exp) env) 
+                       env
+  )
+  'ok
+)
+
+(define (eval-definition exp env)
+  (definition-variable! (definition-variable exp)
+                        (eval (definition-value exp) env)
+                        env
+  )
+  'ok
+)
+```
+
+
+
