@@ -2091,3 +2091,355 @@ scheme 提供了一些机制处理并行以及串行：
 
 
 
+**表达式的表示**：
+
+`quote`
+
+```scheme
+;; quote
+;  'a => (quote a)
+(define (quoted? exp) (tagged-list? exp 'quote))
+(define (text-of-quotation exp) (cadr exp))
+```
+
+
+
+`set!`
+
+```scheme
+;; set!
+;  (set! <var> <value>)
+(define (assignment? exp) (tagged-list? exp 'set!))
+(define (assignment-variable exp) (cadr exp)) ; (cadr exp) => var
+(define (assignment-value exp) (caddr exp)) ; (caddr exp) => value
+```
+
+
+
+`define`
+
+```scheme
+;; define
+;  case1: (define <var> <value>) or
+;  case2: (define (<var> <param-1> ... <param-n>) <body>)
+(define (definition? exp)
+  (tagged-list? exp 'define)
+)
+
+(define (definition-variable exp)
+  (if (symbol? (cadr exp))  ; (car (cdr exp)) => var or (var params...)
+      (cadr exp)            ; case1
+      (caadr exp)           ; case2
+  )
+)
+
+(define (definition-value exp)
+  (if (symbol? (cadr exp))
+      (caddr exp)               ; case1: value
+      (make-lambda (cdadr exp)  ; case2: formal parameters (param-1 ... param-n)
+                   (cddr exp)   ; case2: body
+      )
+  )
+)
+```
+
+
+
+`lambda`
+
+```scheme
+;; lambda
+;  (lambda (param-1 ... param-n) <body>)
+
+(define (lambda? exp)
+  (tagged-list? exp 'lambda)
+)
+
+(define (lambda-parameters exp)
+  (cadr exp)
+)
+
+(define (lambda-body exp)
+  (cddr exp)
+)
+
+(define (make-lambda parameters body)
+  (cons 'lambda (cons parameters body))
+)
+```
+
+
+
+`if`
+
+```scheme
+;; if
+;  (if predicate <consequent> [alternative])
+(define (if? exp)
+  (tagged-list? exp 'if)
+)
+
+(define (if-predicate exp)
+  (cadr exp)
+)
+
+(define (if-consequent exp)
+  (cddr exp)
+)
+
+(define (if-alternative exp)
+  (if (not (null? cdddr exp))
+      (cadddr exp)
+      'false
+  )
+)
+
+(define (make-if predicate consequent alternative)
+  (list 'if predicate consequent alternative)
+)
+```
+
+
+
+`begin`
+
+```scheme
+;; begin
+;  (begin seq...)
+(define (begin? exp)
+  (tagged-list? exp 'begin)
+)
+
+(define (begin-actions exp)
+  (cdr exp)
+)
+
+(define (last-exp? seq)
+  (null? (cdr exp))
+)
+
+(define (first-exp seq)
+  (car seq)
+)
+
+(define (rest-exp seq)
+  (cdr seq)
+)
+
+(define (sequence->exp seq)  ; constructor
+  (cond ((null? seq) seq)
+        ((last-exp? seq) first-exp seq)
+        (else (make-begin seq))
+  )
+)
+
+(define (make-begin seq)
+  (cons 'begin seq)
+)
+```
+
+
+
+过程应用不属于上述各种表达式类型的复合表达式
+
+```scheme
+;; application
+(define (application? exp) (pair? exp))
+(define (operator exp) (car exp))
+(define (operands exp) (cdr exp))
+(define (no-operands? ops) (null? ops))
+(define (first-operands ops) (car ops))
+(define (reset-operands ops) (cdr ops))
+```
+
+
+
+派生的 `cond->if`、`let->lambda` 等表达式代码略
+
+
+
+**解释器的数据结构**：
+
+谓词检测，除了 `false` 对象之外的所有都为 `true`
+
+```scheme
+(define (true? x)
+  (not (eq? x false))
+)
+
+(define (false? x)
+  (eq? x false)
+)
+```
+
+
+
+环境是一个框架（帧？）的链表，一个环境的外围环境就是表的 `cdr`，每个框架都是一对链表形成的序对，一个是变量的表，另一个是约束值得表
+
+```scheme
+(define (enclosing-environment env) (cdr env))
+(define (first-frame env) (car env))
+(define the-empty-environment '())
+
+(define (make-frame variables values) (cons variables values))
+(define (frame-variables frame) (car frame))
+(define (frame-values frame) (cdr frame))
+(define (add-binding-to-frame! var value frame)
+  (set-car! frame (cons var (car frame)))
+  (set-cdr! frame (cons value (cdr frame)))
+)
+
+(define (extend-environment vars vals base-env)
+  (if (= (length vars) (length vals))
+      (cons (make-frame vars vals) base-env)
+      (if (< (length vars) (length vals))
+          (error "Too many arguments supplied" vars vals)
+          (error "Too few arguments supplied" vars vals)
+      )
+  )
+)
+
+(define (lookup-variable-value var env)
+  ; ...
+)
+
+(define (set-variable-value! var val env)
+  ; ...
+)
+```
+
+
+
+**作为程序运行这个解释器**
+
+设置全局环境
+
+```scheme
+(define (setup-environment)
+  (let ((initial-env 
+         (extend-environment (primitive-procedure-names) 
+                        (primitive-procedure-objects)
+                        the-empty-environment)))
+
+    (define-variable! 'true true initial-env)
+    (define-variable! 'false false initial-env)
+    initial
+  )
+)
+
+(define the-global-environment (setup-environment))
+
+; primitive-procedure
+(define (primitive-procedure? proc) (tagged-list? proc 'primitive))
+(define (primitive-implementation proc) (cadr proc))
+(define primitive-procedures
+  (list (list 'car car)
+        (list 'cdr cdr)
+        (list 'cons cons)
+        (list 'null? null?)
+        ; ...
+  )
+)
+
+(define (primitive-procedure-names)
+  (map car primitive-procedures)
+)
+
+(define (primitive-procedure-objects)
+  (map (lambda (proc) (list 'primitive (cadr proc)))
+       primitive-procedures
+  )
+)
+
+(define (apply-primitive-procedure proc args)
+  (apply-in-underlying-scheme (primitive-implementation proc) args)
+)
+```
+
+主循环
+
+```scheme
+;; main loop
+(define input-prompt "M-Eval input:")
+(define output-prompt "M-Eval value:")
+
+(define (driver-loop)
+  (prompt-for-input input-prompt)
+  (let ((input (read)))
+    (let ((output (eval input the-global-environment)))
+      (announce-output output-prompt)
+      (user-print output)
+    )
+  )
+
+  (driver-loop)
+)
+
+(define (prompt-for-input string) (newline) (display string) (newline))
+(define (announce-output string) (newline) (display string) (newline))
+
+(define the-global-environment (setup-environment))
+(driver-loop)
+```
+
+
+
+**内部定义**
+
+```scheme
+(let (a 1)
+  (define (f x)
+    (define b (+ a x))
+    (define a 5)
+    (+ a b)
+  )
+  (f 10)
+)
+```
+
+关于上面得程序有三种解释：
+
+- 1 按照 `define` 的顺序进行，`b` 为 11，`a` 为 5，最后结果是 16
+- 2 相互递归要求内部过程定义的同时性作用域规则，过程和变量名规则不应该不同。（过程不像 C 语言那样非得前向声明，因为内部过程的同时作用域规则）。将会导致在计算 b 时，`a` 还没有赋值导致错误
+- 3 `a` 和 `b` 的定义是同时进行的，`a` 被置为 5，`b` 被置为 15，最后的结果为 20
+
+MIT-scheme 实现为第二种，从原则上第三种是正确的，定义应该是同时的，但是又很难有一种机制实现第三种，所以在遇到困难的同时定义时产生一个错误
+
+由于内部变量表面上看上去是顺序的，实际上是同时的，就希望避免这种情况，于是采用 `letrec`。
+
+```scheme
+(letrec ((<var1> <exp1>) ... (varn expn)) <body>)
+```
+
+这些表达式求值都是在一个包含了所有 `letrec` 约束的环境中完成的，这就允许了约束中的递归
+
+
+
+**将语法分析与执行分离**
+
+```scheme
+(define (eval exp env)
+  ((analyze exp) env)
+)
+
+(define (analyze exp)
+  (cond ((self-evaluating? exp) (analyze-self-evaluating exp))
+        ((quoted? exp) (analyze-quoted exp))
+        ; ...
+        (else "Unknown expression type -- ANALYZE" exp)
+  )
+)
+
+(define (analyze-self-evaluating exp)
+  (lambda (env) exp)
+)
+
+(define (analyze-quoted exp)
+  (let ((qval (text-of-quotation exp)))
+    (lambda (env) qval)
+  )
+)
+
+; other analysis
+```
+
