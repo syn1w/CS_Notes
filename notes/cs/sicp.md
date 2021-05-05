@@ -1960,8 +1960,6 @@ scheme 提供了一些机制处理并行以及串行：
 
 
 
-
-
 **求值器内核**
 
 求值过程可以描述为 `eval` 和 `apply` 之间的相互作用。
@@ -2013,19 +2011,19 @@ scheme 提供了一些机制处理并行以及串行：
 
 (define (apply procedure arguments)
   (cond ((primitive-procedure? procedure)
-    (apply-primitive-procedure procedure arguments))
+          (apply-primitive-procedure procedure arguments))
+        ((compound-procedure? procedure)
+          (eval-sequence
+            (procedure-body procedure)
+            (extend-environment
+              (procedure-parameters procedure)
+              arguments
+              (procedure-environment procedure)
+            )
+          )
+        )
+        (else (error "Unknown procedure type -- APPLY" procedure))
   )
-  ((compound-procedure? procedure)
-    (eval-sequence
-      (procedure-body procedure)
-      (extend-environment
-        (procedure-parameters procedure)
-        arguments
-        (procedure-environment procedure)
-      )
-    )
-  )
-  (else (error "Unknown procedure type -- APPLY" procedure))
 )
 ```
 
@@ -2442,4 +2440,180 @@ MIT-scheme 实现为第二种，从原则上第三种是正确的，定义应该
 
 ; other analysis
 ```
+
+
+
+
+
+## 2. 惰性求值
+
+**正则序与应用序**
+
+采用**应用序**的语言在过程应用（函数调用）的时候，提供给过程的所有参数都需要完成求值。scheme 是应用序的。
+
+采用**正则序**的语言将把过程参数的求值延后到需要这些实际参数的值的时候，将过程参数求值拖到最后的可能时刻。也被叫做惰性求值。
+
+比如
+
+```scheme
+(define (try a b)
+  (if (= a 0) 1 b)
+)
+
+(try 0 (/ 1 0))
+```
+
+对于上面的程序，应用序将产生一个错误，但是对于惰性求值不会
+
+
+
+如果某个参数还没有完成求值之前就进入一个过程体，说这一过程相对于该参数是**非严格的**。
+
+如果在进入过程体之前，某个参数已经完成求值，说该过程相当于这个参数是**严格的**。
+
+严格和非严格是应用序和正则序是同样的意思。
+
+
+
+**采用惰性求值的解释器**
+
+这一节要实现和 scheme 一样的正则序语言，但是其中复合过程对任何参数都是非严格的，基本过程仍然是严格的
+
+基本想法是，在应用过程时，解释器必须缺点哪些参数需要求值，哪些应该延时求值。对于这些需要延时求值的参数不进行求值，这里把它们变换为一种称为 thunk 的对象，在 thunk 里包含着产生这一参数值所有的信息
+
+对 thunk 中的表达式求值的过程称为 force(强迫)，现在要处理的一个选择是采用或不采用记忆性的 thunk
+
+
+
+**修改解释器**
+
+原先处理 apply 的部分
+
+```scheme
+((application? exp)
+  (apply (eval (operator exp) env)
+         (list-of-values (operands exp) env)
+  )
+)
+```
+
+现在变成了 
+
+```scheme
+((application? exp)
+  (apply (actual-value (operator exp) env)
+         (operands exp)
+         env
+  )
+)
+
+(define (actual-value exp env)
+  (force-it (eval exp env))
+)
+```
+
+对于惰性求值，使用运算对象表达式去调用 apply，而不是用求值产生的实际参数
+
+```scheme
+(define (apply procedure arguments)
+  (cond ((primitive-procedure? procedure)
+          (apply-primitive-procedure
+            procedure
+            ; arguments 
+            (list-of-arg-values arguments env)   ; changed
+          )
+        )
+        ((compound-procedure? procedure)
+          (eval-sequence
+            (procedure-body procedure)
+            (extend-environment
+              (procedure-parameters procedure)
+              ; arguments
+              (list-of-delayed-args arguments env) ; changed
+              (procedure-environment procedure)
+            )
+          )
+        )
+        (else (error "Unknown procedure type -- APPLY" procedure))
+  )
+)
+
+(define (list-of-arg-value exps env)
+  (if (no-operands? exp)
+    '()
+    (cons (action-value (first-operand exps) env)
+          (list-of-arg-value (rest-operands exps) env)
+    )
+  )
+)
+
+(define (list-of-delayed-args exps env)
+  (if (no-operands exps)
+    '()
+    (cons (dealy-it (first-operand exps) env)
+          (list-of-delayed-args (rest-operands exps) env)
+    )
+  )
+)
+```
+
+另一个需要修改的地方是对 `if` 的处理
+
+```scheme
+(define (eval-if exp env)
+  (if (true? (actual-value (if-predicate exp) env))
+      (eval (if-consequent exp) env)
+      (eval (if-alternative exp) env)
+  )
+)
+```
+
+最后是主循环部分
+
+```scheme
+(define input-prompt "L-Eval input:")
+(define value-prompt "L-Eval value:")
+(define (driver-loop)
+  (promt-for-input input-prompt)
+  (let ((input (read)))
+    (let ((output (actual-value input the-global-environment)))
+      (announce-output output-prompt)
+      (user-print output)
+    )
+  )
+  (driver-loop)
+)
+```
+
+
+
+**thunk 的表示**
+
+```scheme
+(define (force-it obj)
+  (if (thunk? obj)
+      (action-value (thunk-exp obj) (thunk-env obj))
+      obj
+  )
+)
+
+(define (delay-it exp env)
+  (list 'thunk exp env)
+)
+
+(define (thunk? obj)
+  (tagged-list? obj 'thunk)
+)
+
+(define (thunk-exp thunk) (cadr thunk))
+(define (thunk-env thunk) (caddr thunk))
+```
+
+
+
+thunk 还可以带有记忆功能
+
+有了惰性操作之后，流和惰性操作的链表就是一样的
+
+
 
