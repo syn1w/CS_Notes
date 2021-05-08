@@ -2727,3 +2727,240 @@ thunk 还可以带有记忆功能
 
 
 
+## 4. 逻辑程序设计
+
+计算机处理的是命令式（怎么做）的知识，而数学处理的是说明式（是什么）的知识。
+
+命令式程序设计语言要求程序员以一种形式去表述有关的知识，其中需要指明一种为某一特定问题一步一步的方法。另一方面，高级语言也提供了大量的方法论知识，使用户可以不必关心具体计算如何进行的一些细节。
+
+一部分的程序语言，包括 Lisp，都是围绕数学函数值的计算组织起来的，面向表达式的语言(Lisp, Fortran, Algol)，利用了表达式的一语双关：一个描述了某个函数值的表达式也可以解释为一种计算该值的方法。正因于此，大部分程序设计语言都强烈倾向于单一方向计算（定义清晰的输入和输出）。也存在一些与此不同的程序设计语言，比如之前的约束系统、非确定性计算等。
+
+逻辑程序设计是从有关自动定理证明的长期研究中产生出来的，它们都在穷尽地搜索可能证明的空间。使这种搜索成为可能的重要突破是**合一算法和归结原理**。
+
+逻辑程序设计可以成为一种威力强大的写程序的方式。这种威力来自于：一个关于“是什么”的事实可能被用于解决多个不同的问题。
+
+比如 `append` 操作，以两个链表作为参数，返回组合后的链表。
+
+```scheme
+(define (append x y)
+  (if (null? x)
+      y
+      (cons (car x) (append (cdr x) y))
+  )
+)
+```
+
+上面的过程可以翻译为以下两条规则：
+
+- 对于任何一个链表 y，对空链表和 y 进行 append 结果就是 y
+- 对于任何 u、v、y、z，如果 v 和 y 进行 `append` 形成 z， 那么将 `(cons u v)` 与 y 进行 `append` 将形成 `(cons u z)`
+
+使用这一过程，可以很方便回答这一类问题，求出 `(append (list a b) (list c d))` 的结果。
+
+但是，上面两条规则也足以回答下面这类问题，而上述过程却无法回答：
+
+- 找出一个表 y，使 `(a b)` 与 y 进行 `append` 产生出 `(a b c d)`
+- 找出所有的 x 和 y，进行 `append` 形成 `(a b c d)`
+
+在逻辑式程序设计语言中，程序员实现 `append` 过程的方式就是陈述出有关 `append` 的两条规则。相应的怎样做的知识有解释器自动提供。
+
+当代逻辑程序设计语言，都有一些实质性的缺陷，里面有关怎样做的通用方法，可能使我们陷入谬误性的无穷循环或其他并非我们期待的行为。
+
+
+
+这一节讨论逻辑程序语言的解释器，我们一般称逻辑程序语言为**查询语言**，在描述提取数据库信息的查询或其他操作时非常有用。也就相当于介绍一个 SQL DSL(Domain-specific language)。
+
+
+
+**演绎信息检索**
+
+一个实例数据库，某个公司的人事数据库包含一些人事的**断言**。比如
+
+```scheme
+;; Boss
+(address (Warbucks Oliver) (Swellesley (Top Heap Road)))
+(job (Warbucks 01 iver) (administration big wheel))
+(salary (Warbucks 01iver) 150000)
+
+;; Big Leader
+(address (Bitdiddle Ben) (Slumerville (Ridge Road) 10))
+(job (Bitdiddle Ben) (computer wizard) ) 
+(salary (Bitdiddle Ben) 60000)
+(supervisor (Bitdiddle Ben) (Warbucks Oliver))
+
+;; Under "Ben"
+(address (Hacker Alyssa P) (Cambridge (Mass Ave) 78))
+(job (Hacker Alyssa P) (computer programmer))
+(salary (Hacker Alyssa P) 40000)
+(supervisor (Hacker Alyssa P) (Bitdiddle Ben))
+
+(address (Fect Cy D) (Cambridge (Ames Street) 3))
+(job (Fect Cy D) (computer programmer))
+(salary (Fect cy D) 35000) 
+(supervisor (Fect Cy D) (Bitdiddle Ben))
+
+(address (Tweakit Lem E) (Boston (Bay State Road) 22))
+(job (Tweakit Lem E) (computer technician))
+(salary (Tweakit Lem E) 25000)
+(supervisor (Tweakit Lem E) (Bitdiddle Ben))
+
+;; Trainee, Under "Alyssa"
+(address (Reasoner Louis) (Slumerville (Pine Tree Road) 80))
+(job (Reasoner Louis) (computer programmer trainee))
+(salary (Reasoner Louis) 30000)
+(supervisor (Reasoner Louis) (Hacker Alyssa P))
+```
+
+除了公司的大老板之外，其他人都是计算机分布，工作描述中第一个词就是 `computer`
+
+还包含另外一些断言：
+
+```scheme
+(can-do-job (computer wizard) (computer programmer))
+(can-do-job (computer wizard) (computer technician))
+
+(can-do-job (computer programmer) (commputer programmer trainee))
+```
+
+
+
+进行简单查询：
+
+为了找到所有的 `computer programmer`
+
+```scheme
+(job ?x (computer programmer))
+
+; (job (Hacker Alyssa P) (computer programmer))
+; (job (Fect Cy D) (computer programmer))
+```
+
+列出所有员工的地址：
+
+```scheme
+(address ?x ?y)
+```
+
+查询计算机部所有员工：
+
+```scheme
+(job ?x (computer ?type))
+
+; (job (Bitdiddle Ben) (computer wizard))
+; (job (Hacker Alyssa P) (computer programmer))
+; (job (Fect Cy D) (computer programmer))
+; (job (Tweakit Lem E) (computer technician))
+```
+
+如果想要匹配 `computer programmer trainee` 需要使用 `(job ?x (computer . ?type))`
+
+
+
+复合查询：
+
+```scheme
+(and <query1> <query2> ... <queryn>)
+(or <query1> <query2> ... <queryn>)
+(not <query1>)
+
+(and (job ?person (computer programmer))
+     (address ?person ?where)
+)
+
+; (and (job (Hacker Alyssa P) (computer programmer))
+;      (address (Hacker Alyssa P) (Cambridge (Mass Ave) 78))
+; )
+
+; (and (job (Fect Cy D) (computer programmer))
+;      (address (Fect Cy D) (Cambridge (Ames Street) 3))
+; )
+```
+
+
+
+规则查询：
+
+```scheme
+(rule <conclusion> <body>)
+
+(rule (lives-near ?person1 ?person2)
+  (and (address ?person1 (?town . ?rest1))
+       (address ?person2 (?town . ?rest2))
+       (not (same ?person1 ?person2))
+  )
+)
+
+(lives-near ?x (Bitdiddle Ben))
+; (lives-near (Reasoner Louis) (Bitdiddle Ben))
+; (lives-near (Aull DeWitt) (Bitdiddle Ben))
+```
+
+
+
+**查询系统是如何工作的**
+
+这一节将给出查询解释器的实现，查询解释器必须执行某些搜索，以便将有关查询与数据库里的事实做匹配。一种方法是使用 `amb` 解释器，另一种是借助流，设法控制搜索。考虑实现第二种方法。主要围绕**模式匹配和合一**。
+
+---
+
+*模式匹配*
+
+检查数据项是否是一个给定的模式，比如 `((a b) c (a b))` 与模式 `(?x c ?x)` 匹配，其中 `?x` 约束到 `(a b)`；也与 `(?x ?y ?z)` 匹配，其中 `?x/?z` 都约束到 `(a b)`，`?y` 约束到 `c`
+
+模式匹配器以一个模式、一个数据、一个框架作为输入，该框架描述了一些模式变量的约束。模式匹配器检测在框架约束下该数据是否以某种方式与模式匹配。
+
+模式匹配器提供了不涉及规则的简单查询的所有机制。比如在执行下列的查询时：
+
+```scheme
+(job ?x (computer programmer))
+```
+
+需要对于一个空的框架，扫描数据库里的所有断言，选出其中与模式相匹配的断言。
+
+用模式去检查框架的工作被组织为一种对流的使用。给定一个框架，匹配过程将一个个扫描数据库里的条目，对每个条目，匹配器产生出一个指明匹配失败的特殊符号或者给定框架的扩充。对所有数据库条目的匹配结果被收集到一起，形成一个流，流被送入过滤器，删除所有的失败信息，得到另一个流，其中包含着所有满足条件的框架。
+
+真正优雅的地方是对于复合查询的实现，`(and A B)` 就是先使用 A 条件过滤，再使用 B 条件过滤；`(or A B)` 就是把 A 过滤结果和 B 过滤结果进行归并；`(not A)` 就是相当于一个过滤器，删除非 A 的条目。
+
+---
+
+*合一*
+
+为了处理查询语言中的规则，必须找到这样的规则，其 conclusion 部分与给定的查询模式匹配。规则的 conclusion 很像断言，也可以包含变量，为了处理这种情况，需要模式匹配的一种推广——合一。其中的模式和数据都可以包含变量。
+
+合一器取两个都可以包含常量和变量的模式作为参数，设法去确定找到其中变量的某种赋值，如果能找到，就返回有关约束的框架。比如
+
+`(?x a ?y)` 和 `(?y ?z a)` 的合一将产生 `?x/?y/?z` 都约束到 `a` 的框架
+
+`(?x ?y a)` 和 `(?x b ?y)` 的合一将失败
+
+合一是查询系统最难的部分，对于复杂的模式，合一可能需要做推理。比如 `(?x ?x)` 和 `((a ?y c) (a b ?z))` 必须推断出 `?x` 为 `(a b c)`。
+
+---
+
+
+
+**无穷循环问题**
+
+```scheme
+(assert! (married Minnie Mickey))
+```
+
+使用 `assert!` 将知识或规则加入到数据库中
+
+如果提问 `(married Mickey ?who)` 将无法得到回复，因为系统并不能自动推断 A 与 B 结婚，那么 B 也与 A 结婚
+
+为此我们改为下面的规则：
+
+```scheme
+(assert! (rule (married ?x ?y))
+               (married ?y ?x)
+         )
+)
+```
+
+再次查询 `(married Mickey ?who)` 很不幸进入了无穷循环，首先系统发现 `(married ?x ?y)` 规则与 `(married Mickey ?who)` 匹配，然后又发现 `(married ?y ?x)` 与 `(married Mickey ?who)` 匹配，造成了无穷循环，为了在陷入无穷循环之前找出回答，需要实现细节上进行一些特殊处理。
+
+
+
+由于查询解释器实现内容过多且一般不会遇到，先略过
+
