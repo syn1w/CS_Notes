@@ -2964,3 +2964,110 @@ thunk 还可以带有记忆功能
 
 由于查询解释器实现内容过多且一般不会遇到，先略过
 
+
+
+# 五、寄存器机器的运算
+
+寄存器式虚拟机
+
+这一章主要基于传统计算机的一步一步的操作，描述一些计算过程。这类计算机被称为**寄存器机器**。能够顺序执行一些**指令**，对一组固定称为寄存器的存储单元的内容完成各种操作。对寄存器机器执行的计算过程的描述，很像传统计算机的机器语言程序。在这里不考虑任何架构的机器语言，而是考虑若干 Lisp 过程，并为每个过程设计一部特殊的寄存器机器。
+
+## 1. 寄存器机器的设计
+
+要设计一部寄存器机器，必须设计好**数据通路**（寄存器和操作）和**控制器**，控制器实现操作的顺序执行。
+
+定义一部机器的数据通路，需要描述其中的寄存器和各种操作；控制器定义为一个指令序列，再加上一些标号，标明序列中的一些入口点。
+
+```scheme
+(define (gcd a b)
+  (if (= b 0)
+      a
+      (gcd b (remainder a b))
+  )
+)
+```
+
+将上述过程翻译到指令序列。类似于下面的结果：
+
+```scheme
+(controller
+  test-b  ; label
+    (test (op =) (reg b) (const 0))
+    (branch (label gcd-done))           ; if b = 0, goto gcd-done
+    (assign t (op rem) (reg a) (reg b)) ; t = a % b
+    (assign a (reg b))                  ; a = b
+    (assign b (reg t))                  ; b = t
+    (goto (label test-b))               ; goto test-b
+  gcd-done ; label
+)
+```
+
+现在需要给上面的 `GCD` 机器增加输入输出，使用 `read/print`，`read` 就是读入一个值到一个寄存器中，`print` 不会产生任何可以存入寄存器中的值，我们把这种操作称为**动作**，增加 `perform` 的指令，可以执行动作。
+
+```scheme
+(perform (op print) (reg a))
+```
+
+
+
+**机器设计的抽象**
+
+我们需要定义一些包含着某些基本操作的机器，这样我们可以忽略机器的一些细节，将大量复杂的事物隐藏起来，比如写高级应用程序一般不需要注意其生成的机器语言。
+
+我们还可以使用子程序来避免的重复的数据通路部件，也就是 DRY。
+
+
+
+采用栈来实现递归，增加两条指令，原文用的 `save/restore`，这里改用 `push/pop`，还需要一个 `continue` 寄存器，在解决完子问题后跳回到原问题中。
+
+比如递归求阶乘，
+
+```scheme
+(define (factorial n)
+  (if (= n 1)
+      1
+      (* (factorial (- n 1)) n)
+  )
+)
+
+(controller
+    (assign continue (label fact-done))
+  fact-loop
+    (test (op =) (reg n) (const 1))
+    (branch (label base-case))
+    (push continue)
+    (push n)
+    (assign n (op -) (reg n) (const 1))
+    (assign continue (label after-fact))
+    (goto (label fact-label))
+  after-fact
+    (pop n)
+    (pop continue)
+    (assign val (op *) (reg n) (reg val))
+    (goto (reg continue))
+  base-case
+    (assign val (const 1))
+    (goto (reg continue))
+  fact-done
+)
+```
+
+
+
+指令总结
+
+```scheme
+(assign <register-name> (reg <register-name>))
+(assign <register-name> (const <constant-value>))
+(assign <register-name> (op <operation-name> <input1> ... <inputn>))
+(assign <register-name> (label <label-name>))
+(perform (op <operation-name>) <input1> ... <inputn>)
+(test (op <operation-name>) <input1> ... <inputn>)
+(branch (label <label-name>))
+(goto (label <label-name>))
+(goto (reg <register-name>))
+
+(push <register-name>)   ; save
+(pop <register-name>)    ; restore
+```
+
