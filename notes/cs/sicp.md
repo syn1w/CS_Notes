@@ -3071,3 +3071,195 @@ thunk 还可以带有记忆功能
 (pop <register-name>)    ; restore
 ```
 
+
+
+## 2. 寄存器机器模拟器
+
+```scheme
+(make-machine <register-names> <operations> <controller>)
+(set-register-contents! <machine-model> <register-name> <value>)
+(get-register-contents! <machine-model> <register-name>)
+(start <machine-model>)
+```
+
+可以使用上述四个接口来定义一个模拟器，来进行一些计算，比如 GCD 机器：
+
+```scheme
+(define gcd-machine
+  (make-machine
+    '(a b t)   ; register names
+    (list (list 'rem remainder) (list '= =))  ; operations
+    '(test-b  ; label
+      (test (op =) (reg b) (const 0))
+      (branch (label gcd-done))           ; if b = 0, goto gcd-done
+      (assign t (op rem) (reg a) (reg b)) ; t = a % b
+      (assign a (reg b))                  ; a = b
+      (assign b (reg t))                  ; b = t
+      (goto (label test-b))               ; goto test-b
+      gcd-done ; label
+     )
+  )
+)
+
+(set-register-contents! gcd-machine 'a 206)   ; done
+(set-register-contents! gcd-machine 'b 40)    ; done
+(start gcd-machine)                           ; done
+(get-register-contents gcd-machine 'a)        ; 2
+
+```
+
+
+
+**机器模型**
+
+```scheme
+(define (make-machine register-names ops controller-text)
+  (let ((machine (make-new-machine)))
+    (for-each (lambda (register-name)
+                ((machine 'allocate-register) register-name)
+              )
+      register-names
+    )
+
+    ((machine 'install-operations) ops)
+    ((machine 'install-instruction-sequence)
+      (assemble controller-text machine)
+    )
+    machine
+  )
+)
+
+;; ----------------- register -----------------
+(define (make-register name)
+  (let ((contents '*unassigned*))
+    (define (dispatch message)
+      (cond ((eq? message 'get) contents)
+            ((eq? message 'set) (lambda (value) (set! contents value)))
+            (else (error "Unknown request -- REGISTER" message))
+      )
+    )
+    dispatch
+  )
+)
+
+(define (get-contents register)
+  (register 'get)
+)
+
+(define (set-contents register value)
+  ((register 'set) value)
+)
+
+;; ----------------- stack -----------------
+(define (make-stack)
+  (let ((s '()))
+    (define (push x)
+      (set! s (cons x s))
+    )
+
+    (define (pop)
+      (if (null? s)
+        (error "Empty stack -- POP")
+        (let ((top (car s)))
+          (set! s (cdr s))
+          top
+        )
+      )
+    )
+
+    (define (initialize)
+      (set! s '())
+      'done
+    )
+
+    (define (dispatch message)
+      (cond ((eq? message 'push) push)
+            ((eq? message 'pop) (pop))
+            ((eq? message 'initialize) (initialize))
+            (else (error "Unknown request -- STACK" message))
+      )
+    )
+
+    dispatch
+  )
+)
+
+(define (pop stack)
+  (stack 'pop)
+)
+
+(define (push stack value)
+  ((stack 'push) value)
+)
+
+;; ----------------- machine -----------------
+(define (make-new-machine)
+  (let ((pc (make-register 'pc))
+        (flag (make-register 'flag))
+        (stack (make-stack))
+        (the-instruction-sequence '())
+       )
+    (let ((the-ops (list (list 'initialize (lambda () (stack 'initialize)))))
+          (register-table (list (list 'pc pc) (list 'flag flag)))
+         )
+      (define (allocate-register name)
+        (if (assoc name register-table)
+          (error "Multiply defined register: " name)  ; exists
+          (set! register-table 
+                (cons (list name (make-register name))
+                      register-table
+                )
+          )
+        )
+        'register-allocated
+      )
+
+      (define (lookup-register name)
+        (let ((val (assoc name register-table)))
+          (if val  ; ('name register)
+            (cadr val)
+            (error "Unknown register: " name)
+          )
+        )
+      )
+
+      (define (execute)
+        (let ((insts (get-contents pc)))
+          (if (null? insts)
+            'done
+            (begin ((instruction-execution-proc) (car insts))
+                   (execute)
+            )
+          )
+        )
+      )
+
+      (define (dispatch message)
+        (cond ((eq? message 'start)
+                (set-contents! pc the-instruction-sequence)
+                (execute)
+              )
+              ((eq? message 'install-instruction-sequence)
+                (lambda (seq) (set! the-instruction-seq seq))
+              )
+              ((eq? message 'allocate-register) allocate-register)
+              ((eq? message 'get-register) lookup-register)
+              ((eq? message 'install-operations)
+                (lambda (ops) (set! the-ops (append the-ops ops)))
+              )
+              ((eq? message 'stack) stack)
+              ((eq? message 'operations) the-ops)
+              (else (error "Unknown request -- MACHINE" message))
+        )
+      )
+
+      dispatch
+    )
+  )
+)
+
+(define (get-register machine register-name)
+  ((machine 'get-register) register-name)
+)
+```
+
