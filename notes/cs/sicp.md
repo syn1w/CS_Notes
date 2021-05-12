@@ -3263,3 +3263,107 @@ thunk 还可以带有记忆功能
 )
 ```
 
+
+
+**汇编程序**
+
+汇编程序将一部机器的控制器表达式序列翻译为与之对应的机器指令表，每条指令都带有相应的执行过程。
+
+首先将用户的代码 `controller-text` 转换为指令序列，然后通过 `install-instruction-seqence` 把指令序列安装到机器上
+
+```scheme
+;; controller-text -> instruction sequence
+(define (assemble controller-text machine)
+  (extract-labels controller-text
+    (lambda (insts labels)
+      (update-insts! insts labels machine)
+      insts
+    )
+  )
+)
+```
+
+`extract-labels` 顺序扫描 `text` 中的各个元素，逐渐扩展 `insts` 和 `labels` 链表。当全部扩展完毕，使用 `(update-insts! insts labels machine)` 更新机器的指令表，因为 `extract-labels` 只获取到指令名字，并不知道指令任何执行，在 `update-insts!` 中需要更新指令表，将每一个指令设置为指令到其执行过程 序对。
+
+```scheme
+(define (extract-labels text receive)
+  (if (null? text)
+    (receive '() '())
+    (extract-labels (cdr text)
+      (lambda (insts labels)
+        (let ((next-inst (car text)))
+          (if (symbol? next-inst)
+            ; update labels
+            (receive insts
+                     (cons (make-label-entry next-inst insts)
+                           labels
+                     )
+            )
+
+            ; update insts
+            (receive (cons (make-instruction next-inst) 
+                           insts
+                     )
+                     labels
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(define (update-insts! insts labels machine)
+  (let ((pc (get-register machine 'pc))
+        (flag (get-register machine 'flag))
+        (stack (machine 'stack))
+        (ops (machine 'operations))
+       )
+    (for-each
+      (lambda (inst)
+        (set-instruction-execution-proc! inst
+          (make-execution-procedure (instruction-text inst) labels machine
+            pc flag stack ops
+          )
+        )
+      )
+
+      insts
+    )
+  )
+)
+```
+
+指令和标签的一些操作：
+
+```scheme
+(define (make-instruction text)
+  (cons text '())
+)
+
+(define (instruction-text inst)
+  (car inst)
+)
+
+(define (instruction-execution-proc inst)
+  (cdr inst)
+)
+
+(define (set-instruction-execution-proc! inst proc)
+  (set-cdr! inst proc)
+)
+
+(define (make-label-entry label-name insts)
+  (cons label-name insts)
+)
+
+(define (lookup-label labels label-name)
+  (let ((val (assoc label-name labels)))
+    (if val
+        (cdr val)
+        (error "Undefined label -- ASSEMBLE" label-name)
+    )
+  )
+)
+```
+
