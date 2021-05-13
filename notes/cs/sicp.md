@@ -3283,7 +3283,15 @@ thunk 还可以带有记忆功能
 )
 ```
 
-`extract-labels` 顺序扫描 `text` 中的各个元素，逐渐扩展 `insts` 和 `labels` 链表。当全部扩展完毕，使用 `(update-insts! insts labels machine)` 更新机器的指令表，因为 `extract-labels` 只获取到指令名字，并不知道指令任何执行，在 `update-insts!` 中需要更新指令表，将每一个指令设置为指令到其执行过程 序对。
+`extract-labels` 顺序扫描 `text` 中的各个元素，逐渐扩展 `insts` 和 `labels` 链表（因为是递归进行，准确来说应该是逆向的）。当全部扩展完毕，使用 `(update-insts! insts labels machine)` 更新机器的指令表，因为 `extract-labels` 只获取到指令名字，并不知道指令任何执行，在 `update-insts!` 中需要更新指令表，将每一个指令设置为指令符号到其执行过程 序对。每个标签设置为标签符号到该标签对应的指令序列，因为用 `make-label-entry next-inst insts` 设置新的标签时，会把当前的 `insts` 序列作为标签的 `cdr`。
+
+比如：
+
+![insts_and_labels](../../imgs/cs/sicp5_1.png)
+
+指令：`inst symbol -> procedure` 
+
+标签：`label symbol -> insts sequence` 
 
 ```scheme
 (define (extract-labels text receive)
@@ -3365,5 +3373,218 @@ thunk 还可以带有记忆功能
     )
   )
 )
+```
+
+
+
+**为指令生成执行过程**
+
+```scheme
+;; return procedure of inst
+(define (make-execution-procedure inst labels machine pc flag stack ops)
+  (cond ((eq? (car inst) 'assign)
+          (make-assign inst machine labels ops pc)
+        )
+        ((eq? (car inst) 'test)
+          (make-test inst machine labels ops flag pc)
+        )
+        ((eq? (car inst) 'branch)
+          (make-branch inst machine labels flag pc)
+        )
+        ((eq? (car inst) 'goto)
+          (make-goto inst machine labels pc)
+        )
+        ((eq? (car inst) 'save)
+          (make-save inst machine stack pc)
+        )
+        ((eq? (car inst) 'restore)
+          (make-restore inst machine stack pc)
+        )
+        ((eq? (car inst) 'perform)
+          (make-perform inst machine labels ops pc)
+        )
+        (else (error "Unknown instruction type -- ASSEMBLE" inst))
+  )
+)
+
+;; (assign register-name value)
+(define (assign-reg-name assign-instruction)
+  (cadr assign-instruction)
+)
+
+(define (assign-value-exp assign-instruction)
+  (cddr assign-instruction)
+)
+
+(define (make-assign inst machine labels operations pc)
+  (let ((target (get-register machine (assign-reg-name inst)))
+        (value-exp (assign-value-exp inst))
+       )
+    (let ((value-proc
+            (if (operation-exp? value-exp)
+              (make-operation-exp value-exp machine labels operations)
+              (make-primitive-exp (car value-exp) machine labels)
+            )
+          )
+         )
+
+      (lambda ()
+        (set-contents! target (value-proc))
+        (advance-pc! pc)
+      )
+    )
+  )
+)
+
+; pc = pc.next;
+(define (advance-pc! pc)
+  (set-contents! pc (cdr (get-contents pc)))
+)
+
+;; (test condition)
+(define (make-test inst machine labels operations flag pc)
+  (let ((condition (test-condition inst)))
+    (if (operation-exp? condition)
+      (let ((condition-proc 
+              (make-operation-exp condition machine labels operations)))
+        (lambda ()
+          (set-contents! flag (condition-proc))
+          (advance-pc! pc)
+        )
+      )
+    )
+  )
+)
+
+(define (test-condition test-instruction)
+  (cdr test-instruction)
+)
+
+;; (branch (label label-name))
+(define (make-branch inst machine labels flag pc)
+  (let ((dest (branch-dest inst)))
+    (if (label-exp? dest)
+      (let ((insts (lookup-label labels (label-exp-label))))
+        (lambda ()
+          (if (get-contents flag)         ; if flag
+            (set-contents! pc insts)      ; pc = insts
+            (advance-pc! pc)
+          )
+        )
+      )
+      (error "Bad BRANCH instruction -- ASSEMBLE" inst)
+    )
+  )
+)
+
+; return (label label-name) expr
+(define (branch-dest branch-instruction)
+  (cadr branch-instruction)
+)
+
+; cadr (label label-name) => label-name
+(define (label-exp-label exp)
+  (cadr exp)
+)
+
+;; (goto (label label-name)) or
+;; (goto register-name)
+(define (make-goto inst machine labels pc)
+  (let ((dest (goto-dest inst)))
+    (cond ((label-exp? dest)
+            (let ((insts (lookup-label labels (label-exp-label dest))))
+              (lambda () (set-contents! pc insts)) ; pc = insts
+            )
+          )
+          ((register-exp? dest)
+            (let ((reg (get-register machine (register-exp-reg dest))))
+              (lambda () (set-contents! pc (get-contents reg))) ; pc = reg.value
+            )
+          )
+          (else (error "Bad GOTO instruction -- ASSEMBLE" inst))
+    )
+  )
+)
+
+(define (register-exp-reg exp)
+  (cadr exp)
+)
+
+; return (label label-name) or register-name
+(define (goto-dest goto-instruction)
+  (cadr goto-instruction)
+)
+
+;; (save register-name)
+(define (make-save inst machine stack pc)
+  (let ((reg (get-register machine (stack-inst-reg-name inst))))
+    (lambda ()
+      (push stack (get-contents reg))
+      (advance-pc! pc)
+    )
+  )
+)
+
+(define (stack-inst-reg-name inst)
+  (cadr inst)
+)
+
+
+;; (restore register-name)
+(define (make-restore inst machine stack pc)
+  (let ((reg (get-register machine (stack-inst-reg-name inst))))
+    (lambda ()
+      (set-contents! reg (pop stack))
+      (advance-pc! pc)
+    )
+  )
+)
+
+;; (perform operation)
+(define (make-perform inst machine labels operations pc)
+  (let ((action (perform-action inst)))
+    (if (operation-exp? action)
+      (let ((action-proc (make-operation-exp action machine labels operations)))
+        (lambda ()
+          (action-proc)
+          (advance-pc! pc)
+        )
+      )
+      (error "Bad PERFORM instruction -- ASSEMBLE" inst)
+    )
+  )
+)
+
+(define (perform-action inst)
+  (cdr inst)
+)
+
+(define (make-primitive-exp exp machine labels)
+  (cond ((constant-exp? exp)
+          (let ((c (constant-exp-value exp)))
+            (lambda () c)
+          )
+        )
+        ((label-exp? exp)
+          (let ((insts (lookup-label labels (label-exp-label exp))))
+            (lambda () insts)
+          )
+        )
+        ((register-exp? exp)
+          (let ((r (get-register machine (register-exp-reg exp))))
+            (lambda () (get-contents r))
+          )
+        )
+        (else (error "Unknown expression type -- ASSEMBLE" exp))
+  )
+)
+
+;; (const exp)
+(define (constant-exp-value exp)
+  (cadr exp)
+)
+
+(define (register-exp? exp) (tagged-list? exp 'reg))
+(define (constant-exp? exp) (tagged-list? exp 'const))
 ```
 
