@@ -3240,7 +3240,7 @@ thunk 还可以带有记忆功能
                 (execute)
               )
               ((eq? message 'install-instruction-sequence)
-                (lambda (seq) (set! the-instruction-seq seq))
+                (lambda (seq) (set! the-instruction-sequence seq))
               )
               ((eq? message 'allocate-register) allocate-register)
               ((eq? message 'get-register) lookup-register)
@@ -3586,5 +3586,146 @@ thunk 还可以带有记忆功能
 
 (define (register-exp? exp) (tagged-list? exp 'reg))
 (define (constant-exp? exp) (tagged-list? exp 'const))
+
+;; (op operation) (operand1) (operand2) (...) (operandn)
+;; in assign/perform/test
+(define (make-operation-exp exp machine labels operations)
+  (let ((op (lookup-prim (operation-exp-op exp) operations)) ; operation
+        ; operands
+        (aprocs (map (lambda (e) (make-primitive-exp e machine labels))
+                     (operation-exp-operands exp)
+                )
+        )
+       )
+    (lambda ()
+      ; (op value-operand1 ... value-operandn)
+      (apply op (map (lambda (p) (p)) aprocs))
+    )
+  )
+)
+
+; find opx in ('initialize op1 op-proc1 op2 op-proc2 ... opn op-procn) =>
+; val = (symbol symbol-operation ...)
+; (cadr val) => symbol-operation
+(define (lookup-prim symbol operations)
+  (let ((val (assoc symbol operations)))
+    (if val
+      (cadr val)
+      (error "Unknown opeartion -- ASSEMBLE" symbol)
+    )
+  )
+)
+
+(define (operation-exp? exp)
+  (and (pair? exp) (tagged-list? (car exp) 'op))
+)
+
+(define (operation-exp-op operation-exp)
+  (cadr (car operation-exp))
+)
+
+(define (operation-exp-operands operation-exp)
+  (cdr operation-exp)
+)
+```
+
+
+
+**监视机器的执行**
+
+重写 `make-stack` 可以使用 `print-statistics` 来打印一些调试信息
+
+```scheme
+; new version
+(define (make-stack-new)
+  (let ((s '())
+        (number-pushes 0)
+        (max-depth 0)
+        (current-depth 0)
+       )
+
+    (define (push x)
+      (set! s (cons x s))
+      (set! number-pushes (+ number-pushes 1))
+      (set! current-depth (+ current-depth 1))
+      (set! max-depth (max current-depth max-depth))
+    )
+
+    (define (pop)
+      (if (null? s)
+        (error "Empty stack -- POP")
+        (let ((top (car s)))
+          (set! s (cdr s))
+          (set! current-depth (- current-depth 1))
+          top
+        )
+      )
+    )
+
+    (define (initialize)
+      (set! s '())
+      (set! number-pushes 0)
+      (set! max-depth 0)
+      (set! current-depth 0)
+      'done
+    )
+
+    (define (print-statistics)
+      (newline)
+      (display (list 'total-pushes  '= number-pushes
+                     'maximum-depth '= max-depth
+               )
+      )
+    )
+
+    (define (dispatch message)
+      (cond ((eq? message 'push) push)
+            ((eq? message 'pop) (pop))
+            ((eq? message 'initialize) (initialize))
+            ((eq? message 'print-statistics) (print-statistics))
+            (else (error "Unknown request -- STACK" message))
+      )
+    )
+    
+    dispatch
+  )
+)
+```
+
+
+
+对模拟器机器整体的梳理：
+
+```txt
++----------------------------------------------------------+
+|                    Application Level                     |
+|       use the special machine by machine interface       |
+|       such as (start gcd-machine)                        |
++----------------------------------------------------------+
+|                    Controller Level                      |
+|      define a speicial machine by listing registers,     |
+|           operations, assemble instructions(text)        |
++----------------------------------------------------------+
+|                    Assemble Level                        |
+|   construct a machine by assemble instructions(insts)    |
+|   allocate registers, install operations and instructions|
++----------------------------------------------------------+
+|                  Machine High Level                      |
+|      define assign/test/branch/goto/save/restore/        |
+|             perfrom... assemble instructions             | 
+|                                                          |
+|   update! registers or stack(change machine states)      |
++----------------------------------------------------------+
+|                  Machine Low Level                       |
+|     register-table: 'pc -> pc, 'flag -> flag 'r -> r ... |
+|     stack: save and restore data                         |
+|     the-ops: ('initialize  op1 op-proc1 op2 op-proc2)    |
+|     the-instruction-sequence: (inst1 . proc1) -> ...     |
+|                                                          |
+|     interface: start, allocate-register, get-register    |
+|                install-operations, operations,           |
+|                install-instruction-seqence,              |
+|                stack                                     |
++----------------------------------------------------------+
 ```
 
