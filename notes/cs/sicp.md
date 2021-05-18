@@ -3729,3 +3729,96 @@ thunk 还可以带有记忆功能
 +----------------------------------------------------------+
 ```
 
+
+
+## 3. 存储分配和垃圾回收
+
+**将存储看作向量**
+
+计算机存储器可以看作一串排列整齐的小隔间，每个小隔间都可以存储一点信息，每个小隔间都有一个唯一性的名字，称为**地址**。典型的存储器系统有两个操作 `load/store`，而且地址可以对内存单元进行随机访问。
+
+为了模拟计算机存储器，采用 `vector` 数据结构：
+
+```scheme
+(make-vector)
+(vector-ref <vector> <n>)          ; vector[n]
+(vector-set! <vector> <n> <value>) ; vector[n] = value
+```
+
+可以使用向量存储链表结构所需的基本序对结构。可以设想计算机中的存储器被分为两个向量，`the-cars` 和 `the-cdrs` 
+
+需要一个标识来区分内存单元中是哪种数据，可以归结为采用带类型的指针。这里可以使用 `px` 来表示指针，其中 x 为被序对的标号；使用 `nx` 表示值，其中 `x` 为具体的值；空指针使用 `e0` 表示。其中的空白空间可能被其他的链表使用，这里不需要管空白部分。
+
+![list_by_vec](../../imgs/cs/sicp5_2.png)
+
+
+
+**基本表操作的实现**
+
+可以让寄存器机器支持以下的指令：
+
+```scheme
+(assign <reg1> (op car) (reg <reg2>))
+(assign <reg2> (op cdr) (reg <reg2>))
+
+(perform (op set-car!) (reg <reg1>) (reg <reg2>))
+(perform (op set-cdr!) (reg <reg1>) (reg <reg2>))
+```
+
+可以将它们分别实现为：
+
+```scheme
+(assign <reg1> (op vector-ref) (reg the-cars) (reg <reg2>))
+(assign <reg1> (op vector-ref) (reg the-cdrs) (reg <reg2>))
+
+(perform (op vector-set!) (reg the-cars) (reg <reg1>) (reg <reg2>))
+(perform (op vector-set!) (reg the-cdrs) (reg <reg1>) (reg <reg2>))
+```
+
+执行 `cons` 时需要分配一个闲置未用的下标，我们还需要有一个特殊的寄存器 `free`，保存着一个序对指针，总数指向着下一个可用下标。而且可以增加这一指针的下标部分，以便找到下一个空闲位置。实现 `cons` 的指令：
+
+```scheme
+(assign <reg1> (op cons) (reg <reg2>) (reg <reg3>))
+```
+
+可以由下面的向量操作实现：
+
+```scheme
+(perform (op vector-set!) (reg the-cars) (reg free) (reg <reg2>))
+(perform (op vector-set!) (reg the-cdrs) (reg free) (reg <reg2>))
+(assign <reg1> (reg free))
+(assign free (op +) (reg free) (const 1))
+```
+
+检测寄存器的所有域是否相等：
+
+```scheme
+((op eq?) (reg <reg1>) (reg <reg2>))
+```
+
+
+
+**栈的实现**
+
+栈可以用链表来实现，可以有一个特殊的寄存器 `the-stack` 指向栈。
+
+```scheme
+;; push
+(assign the-stack (op cons) (reg <reg>) (reg the-stack))
+
+;; pop
+(assign <reg> (op car) (reg the-stack))
+(assign the-stack (op cdr) (reg the-stack))
+
+;; (perform (op initialize-stack))
+(assign the-stack (const ()))
+```
+
+
+
+**维持无穷存储的假象**
+
+比如 `(accumulate + 0 (filter odd? (enumerate-interval 0 n)))`，首先构造一个枚举 0 到 n 的链表，然后构造一个过滤后的表，然后对结果进行累加。在累加过程之后。中间的链表就不再需要了，为它们分配的存储可以回收。如果可以周期性对垃圾进行回收，那么就能维持存在无穷数量的存储器。
+
+垃圾回收的方法很多，这里使用**停止并复制**。基本思想是将存储器分为 ”工作存储区“ 和 ”自由存储区“。当需要构造序对时，就在工作存储区分配，当工作存储区满的时候就执行垃圾回收，确定位于工作存储区中所有有用序对的位置（追踪所有的 `car` 和 `cdr` 指针），并把它们复制到自由存储区。然后交互工作存储区和自由存储区的角色，继续进行分配工作。
+
