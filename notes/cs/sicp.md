@@ -3822,3 +3822,155 @@ thunk 还可以带有记忆功能
 
 垃圾回收的方法很多，这里使用**停止并复制**。基本思想是将存储器分为 ”工作存储区“ 和 ”自由存储区“。当需要构造序对时，就在工作存储区分配，当工作存储区满的时候就执行垃圾回收，确定位于工作存储区中所有有用序对的位置（追踪所有的 `car` 和 `cdr` 指针），并把它们复制到自由存储区。然后交互工作存储区和自由存储区的角色，继续进行分配工作。
 
+
+
+## 4. 显式控制求值器
+
+开发一个显式控制的求值器，用以说明求值过程中所用的过程调用的参数传递的基础机制，如何基于寄存器和栈实现这种机制。
+
+而且显式控制求值器还作为 Scheme 解释器的一种实现，描述这一实现的语言也非常接近机器语言。这个求值器可以在之前介绍的模拟器上执行。
+
+**寄存器和操作**
+
+在设计显式控制的求值器时，我们必须描述这部寄存器机器的各种操作。
+
+Scheme 求值器寄存器机器包含了一个栈和 7 个寄存器：`exp, env, val, continue, proc, argl, unev`，`exp` 是被求值的表达式，`env` 是求值所进行的环境，`val` 是求值结束得到的结果，`continue` 寄存器用于实现递归，`proc, argl, unev` 用于求值组合式的时候。
+
+
+
+**显式控制求值器的内核**
+
+入口点：
+
+```scheme
+eval-dispatch
+  (test (op self-evaluating?) (reg exp))
+  (branch (label ev-self-eval))
+  (test (op variable?) (reg exp))
+  (branch (label ev-variable))
+  (test (op quoted?) (reg exp))
+  (branch (label ev-quoted))
+  (test (op assignment?) (reg exp))
+  (branch (label ev-assignment))
+  (test (op definition?) (reg exp))
+  (branch (label ev-definition))
+  (test (op if?) (reg exp))
+  (branch (label ev-if))
+  (test (op lambda?) (reg exp))
+  (branch (label ev-lambda))
+  (test (op begin?) (reg exp))
+  (branch (label ev-begin))
+  (test (op application?) (reg exp))
+  (branch (label ev-application))
+  (goto (label unknown-expression-type))
+```
+
+
+
+简单表达式：
+
+```scheme
+ev-self-val
+  (assign val (reg exp))
+  (goto (reg continue))
+
+ev-variable
+  (assign val (op lookup-variable-value) (reg exp) (reg env))
+  (goto (reg continue))
+
+ev-quoted
+  (assign val (op text-of-quotation) (reg exp))
+  (goto (reg continue))
+
+ev-lambda
+  (assign unev (op lambda-parameters) (reg exp))
+  (assign exp (op lambda-body) (reg exp))
+  (assign val (op make-procedure) (reg unev) (reg exp) (reg env))
+  (goto (reg continue))
+```
+
+
+
+过程应用的求值：
+
+过程应用由组合式描述，其中包含了过程和实际参数对象。在元循环求值器里，`eval` 处理过程应用的方法是递归去求求值器的每个元素。将结果应用到 `apply`
+
+显式控制求值器也需要做同样的事情，递归调用通过 `goto` 实现，还需要用栈保存一些寄存器，以便在调用返回之后恢复。
+
+在调用之前，我们需要辨明哪些寄存器需要保存，需要将 `env, unev, continue` 寄存器保存到栈中。
+
+然后将 `continue` 设置为 `ev-application-did-operator`，以便过程应用结束之后返回到 `ev-application-did-operator`
+
+```scheme
+ev-application
+  (save continue)
+  (save env)
+  (assign unev (op operands) (reg exp)) ; operands
+  (save unev)
+  (assign exp (op operator) (reg exp)) ; new exp = operator
+  (assign continue (label ev-application-did-operator))
+  (goto (label eval-dispatch)) ; val = operator
+
+ev-application-did-operator
+  (restore unev) ; operands
+  (restore env)
+  (assign argl (op empty-arglist))
+  (assign proc (reg val)) ; operator
+  (test (op no-operands?) (reg unev))
+  (branch (label apply-dispatch)) ; if no operands, goto apply-dispatch
+  (save proc) ; else continue `ev-application-operand-loop`
+
+ev-application-operand-loop
+  (save argl)
+  (assign exp (op first-operand) (reg unev))
+  (test (op last-operand?) (reg unev))
+  (branch (label ev-application-last-arg)) ; if last arg
+  (save env) ; else
+  (save unev)
+  (assign continue (label ev-application-add-arg))
+  (goto (label eval-dispatch))
+
+ev-application-add-arg
+  (restore unev)
+  (restore env)
+  (restore argl)
+  (assign argl (op adjoin-arg) (reg val) (reg argl))
+  (assign unev (op reset-operands) (reg unev))
+  (goto (label ev-application-operand-loop))
+
+ev-application-last-arg
+  (assign continue (label ev-application-add-last-arg))
+  (goto (label eval-dispatch))
+
+ev-application-add-last-arg
+  (restore argl)
+  (assign argl (op adjoin-arg) (reg val) (reg argl))
+  (restore proc)
+  (goto (label apply-dispatch))
+```
+
+如果实参数量为 0，直接 `goto apply-dispatch` 进行求值；否则，进去求操作数循环，依次计算出每个操作数，之后 `goto apply-dispatch` 进行求值。
+
+`apply-dispath` 入口：
+
+```scheme
+apply-dispatch
+  (test (op primitive-procedure?) (reg proc))
+  (branch (label primitive-apply))
+  (test (op compound-procedure?) (reg proc))
+  (branch (label compound-apply))
+  (goto (label unknown-procedure-type))
+
+primitive-apply
+  (assign val (op apply-primitive-procedure) (reg proc) (reg argl)) ; proc(argl)
+  (restore continue)
+  (goto (reg continue))
+
+compound-apply
+  (assign unev (op procedure-parameters) (reg proc))
+  (assign env (op procedure-environment) (reg proc))
+  (assign env (op extend-environment) (reg unev) (reg argl) (reg env))
+  (assign unev (op procedure-body) (reg proc))
+  (goto (label ev-sequence))
+```
+
