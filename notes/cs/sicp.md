@@ -3974,3 +3974,146 @@ compound-apply
   (goto (label ev-sequence))
 ```
 
+`ev-sequence` 和元循环求值器中的 `eval-sequence` 类似，处理过程体或显式的 `begin` 表达式
+
+求值 `begin` 表达式时，将求值表达式序列放入 `unev`，将 `continue` 入栈，然后跳转到 `ev-sequence` 进行求值
+
+```scheme
+ev-begin
+  (assign unev (op begin-actions) (reg exp))
+  (save continue)
+  (goto (label ev-sequence))
+
+ev-sequence
+  (assign exp (op first-exp) (reg unev))
+  (test (op last-exp?) (reg unev))
+  (branch (label ev-sequence-last-exp)) ; eval last exp
+  (save unev)
+  (save env)
+  (assign continue (label ev-sequence-continue)) ; next
+  (goto (label eval-dispatch)) ; handle exp
+
+ev-sequence-continue
+  (restore env)
+  (restore unev)
+  (assign unev (op rest-exps) (reg unev))
+  (goto (label ev-sequence))
+
+ev-sequence-last-exp
+  (restore continue)
+  (goto (label eval-dispatch))
+```
+
+我们这里的求值器是尾递归的，求值序列的最后一个表达式时，求值器直接跳转到 `ev-dispatch` 并没有把任何信息入栈
+
+
+
+条件表达式：
+
+我们需要先求谓词部分，然后根据谓词的值，决定对哪部分进行求值
+
+```scheme
+ev-if
+  (save exp) ; for consequent or alternative
+  (save env)
+  (save continue)
+  (assign continue (label ev-if-decide))
+  (assign exp (op if-predicate) (reg exp))
+  (goto (label eval-dispatch)) ; evaluate the predicate
+
+ev-if-decide
+  (restore continue)
+  (restore env)
+  (restore exp)
+  (test (op true?) (reg val))  ; if predicate
+  (branch (label ev-if-consequent)) ; true
+
+ev-if-alternative ; false
+  (assign exp (op if-alternative) (reg exp))
+  (goto (label eval-dispatch))
+
+ev-if-consequent
+  (assign exp (op if-consequent) (reg exp))
+  (goto (label eval-dispatch))
+```
+
+
+
+赋值和定义表达式：
+
+这两个过程类似，先求出赋值表达式中表达式的值，然后把这一新值装入到环境中
+
+```scheme
+ev-assignment
+  (assign unev (op assignment-variable) (reg exp)) ; variable
+  (save unev) ; save variable
+  (assign exp (op assignment-value) (reg exp)) ; value
+  (save env)
+  (save continue)
+  (assign continue (label ev-assignment-1))
+  (goto (label eval-dispatch)) ; eval value
+
+ev-assignment-1 ; set env
+  (restore continue)
+  (restore env)
+  (restore unev) ; variable
+  (perform (op set-variable-value!) (reg unev) (reg val) (reg env))
+  (assign val (const ok))
+  (goto (reg continue))
+
+ev-definition
+  (assign unev (op definition-variable) (reg exp))
+  (save unev) ; save variable
+  (assign exp (op definition-value) (reg exp)) ; value
+  (save env)
+  (save continue)
+  (assign continue (label-ev-definition-1))
+  (goto (label eval-dispatch)) ; eval value
+
+ev-definition-1 ; set env
+  (restore continue)
+  (restore env)
+  (restore unev) ; variable
+  (perform (op define-variable!) (reg unev) (reg val) (reg env))
+  (assign val (const ok))
+  (goto (reg continue))
+```
+
+
+
+REPL 循环：
+
+```scheme
+read-eval-print-loop
+  (perform (op initialize-stack))
+  (perform (op prompt-for-input) (const ";;; EC-Eval input:"))
+  (assign exp (op read))
+  (assign env (op get-global-environment))
+  (assign continue (label print-result))
+  (goto (label eval-dispatch))
+
+print-result
+  (perform (op announce-output) (const ";;; EC-Eval value:"))
+  (perform (op user-print) (reg val))
+  (goto (label read-eval-print-loop))
+```
+
+
+
+一些错误处理：
+
+```scheme
+unknown-expression-type
+  (assign val (const unknown-expression-type-error))
+  (goto (label signal-error))
+
+unknown-procedure-type
+  (restore continue) ; cleanup stack(from apply-dispatch)
+  (assign val (const unknown-procedure-type-error))
+  (goto (label signal-error))
+
+signal-error
+  (perform (op user-print) (reg val))
+  (goto (label read-eval-print-loop))
+```
+
