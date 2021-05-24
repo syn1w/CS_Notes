@@ -4117,3 +4117,205 @@ signal-error
   (goto (label read-eval-print-loop))
 ```
 
+
+
+## 5. 编译
+
+4.1 部分，使用 Lisp 实现了一个小型的 Lisp 解释器，主要使用 `eval/apply` 循环对 Lisp 表达式进行求值。
+
+因为 Lisp 的 S 表达式，使得数据和程序进行了统一，词法分析和语法分析统一，表达式本身就自带语法结构，可以直接使用 Lisp 实现对 Lisp 表达式求值的功能。
+
+5.2 部分，使用 Lisp 实现了寄存器机器的模拟器，通过抽象，使得可以在机器上执行用户定义运算。最底层定义了寄存器、栈、可以设置寄存器、栈、内置操作符、指令序列的接口。在上一层使用汇编语言（机器语言）对最底层进行了抽象，定义了一组指令集，包括每个指令的名称、操作数以及执行过程（如何操作底层的寄存器、栈等），然后在控制器层使用汇编语言，可以定义一些特定计算过程，实现某种计算。然后在应用层可以直接使用这些定义好的控制求值器。
+
+5.4 部分，使用寄存器机器的汇编语言（机器语言），实现了一个 Lisp 在模拟器上运行的 Lisp 求值器（计算 Lisp 表达式值的计算过程）。
+
+
+
+为了在高级语言和寄存器机器的汇编语言之间的鸿沟上架起一座桥梁，这里存在两种常见策略：
+
+- 一种是 5.4 那样，使用汇编语言之间写出一个解释器，使它能够执行某个语言的程序。被解释的程序用一个数据结构表示，解释器遍历这个数据结构，模拟源程序所要求的行为。
+- 另一种是该部分介绍的**编译**策略，能够将源程序翻译为机器语言的等价程序（称为目标程序）。所以在这一部分，实现一个编译器，将 scheme 程序翻译类似于显式控制求值器使用的机器语言。
+
+
+
+当然，更广义的编译指的是从一种语言翻译到另一种语言就可以叫做翻译。
+
+
+
+有关这个编译器的综述：
+
+这个编译器很像之前的解释器，使用寄存器规则：执行环境保存在 `env` 中，实际参数列表存在 `argl` 寄存器中，被应用的过程存在 `proc` 寄存器，过程通过 `val` 返回，过程将返回地址保存到 `continue` 中。
+
+从本质上说，编译器的目标程序所执行的操作，也就是解释器求值同一个源程序时所执行的操作。
+
+之前有过对元循环解释器修改，将分析过程和执行过程分离，在分析表达式之后产生一个执行过程，以环境作为参数，执行所需的操作。
+
+在编译器中，仍要做类似的分析过程，不过不是产生出一个执行过程，而是要生成一个能够在之前的寄存器机器上运行的指令序列。
+
+`compile` 执行一个基于被编译的表达式语法类型的分情况分析，对于每种表达式，将分派到一个特定的**代码生成器**。
+
+```scheme
+(define (compile exp target linkage)
+  (cond ((self-evaluating? exp)
+          (compile-self-evaluating exp target linkage)
+        )
+        ((quoted? exp) (compile-quoted exp target linkage))
+        ((variable? exp) (compile-variable exp target linkage))
+        ((assignment? exp) (compile-assignment exp target linkage))
+        ((definition? exp) (compile-definition exp target linkage))
+        ((if? exp) (compile-if exp target linkage))
+        ((lambda? exp) (compile-lambda exp target linkage))
+        ((begin? exp) (compile-sequence (begin-actions exp) target linkage))
+        ((cond? exp) (compile (cond->if exp) target linkage))
+        ((application? exp) (compile-application exp target linkage))
+        (else (error "Unknown expression type -- COMPILE" exp))
+  )
+)
+```
+
+除了编译的表达式外，还有另外两个参数：
+
+一个是 `target`，描述的是一个寄存器，被编译出的代码应该将表达式的值保存到这里。
+
+还有一个是连接描述符(`linkage`)，描述的是表达式的编译结果在完成执行之后，应该如何继续下去，可以做 [继续下一条指令(`next`)、从被编译的过程返回(`return`，`goto (reg continue)`)、跳到一个命名入口点(指定标号)]
+
+每个代码生成器都返回一个指令序列，包含的是被编译表达式生成的目标代码。组合指令序列可以使用 `append-instruction-sequences <seq1> <seq2>`
+
+有时候需要使用栈保存一些寄存器的值，编译器的代码生成器使用 `preserving (list <reg set>...) <seq1> <seq2>`，第一个参数是寄存器集合，另外两个参数是需要顺序执行的指令序列，`preserving` 能够保证，如果某个寄存器的值在第二个指令序列中使用的话，不会受到第一个指令序列的影响。这样就不用显式生成 `save/restore` 指令。
+
+现在考虑 `preserving` 的实现，如果直接分析指令序列中寄存器的使用情况，`preserving` 将变得复杂和低效。而且指令序列中寄存器使用情况也可能分析过，为了避免这种重复分析，可以为每个指令序列关联寄存器的使用情况。
+
+一个指令序列分为三部分信息：
+
+- 指令序列执行前必须初始化的寄存器集合（寄存器为指令序列所需要）
+- 在这一序列中，其值会被修改的寄存器集合
+- 序列的实际指令
+
+指令序列的构造函数
+
+```scheme
+(define (make-instruction-sequence needs modifies statements)
+  (list needs modifies statements)
+)
+
+(define empty-instruction-sequence (make-instruction-sequence '() '() '()))
+```
+
+
+
+**表达式的编译**
+
+一般而言，每个代码生成器的输出都是一些指令，最后由 `compile-linkage` 实现所需要的连接，如果是 `return`，就必须生成 `(goto (reg continue))` 指令；如果是 `next`，则不需要生成任何指令；否则连接就是转向一个标号的 `goto` 指令。
+
+连接代码将被 `preserving` 用保留 `continue` 寄存器的方式，附加到相应的指令序列之后。
+
+```scheme
+(define (compile-linkage linkage)
+  (cond ((eq? linkage 'return)
+          (make-instruction-sequence '(continue) '() '((goto (reg continue))))
+        )
+        ((eq? linkage 'next) (empty-instruction-sequence))
+        (else (make-instruction-sequence '() '() '((goto (label ,linkage)))))
+  )
+)
+
+(define (end-with-linkage linkage instruction-sequence)
+  (preserving '(continue)
+              instruction-sequence
+              (compile-linkage linkage)
+  )
+)
+```
+
+`,linkage` 是对 `linkage` 进行求值
+
+
+
+简单表达式的编译
+
+```scheme
+(define (compile-self-evaluating exp target linkage)
+  (end-with-linkage linkage
+    (make-instruction-sequence
+      '() 
+      (list target)
+      '((assign ,target (const ,exp)))
+    )
+  )
+)
+
+(define (compile-quoted exp target linkage)
+  (end-with-linkage linkage
+    (make-instruction-sequence
+      '() 
+      (list target)
+      '((assign ,target (const ,(text-of-quotation exp))))
+    )
+  )
+)
+
+(define (compile-variable exp target linkage)
+  (end-with-linkage linkage
+    (make-instruction-sequence
+      '(env) 
+      (list target)
+      '((assign ,target (op lookup-variable-value) (const ,exp) (reg env)))
+    )
+  )
+)
+```
+
+
+
+赋值和定义表达式，递归计算右边的值，并在后面附加两条指令，完成对变量的赋值语句生成，最后将整个表达式（符号 `ok`）赋值给 `,target`
+
+使用 `val` 作为右边表达式的值，并且使用 `next` 的 `linkage`
+
+```scheme
+(define (compile-assignment exp target linkage)
+  (let ((var (assignment-variable exp))
+        (get-value-code (compile (assignment-value exp) 'val 'next))
+       )
+    (end-with-linkage linkage
+      (preserving 
+        '(env) ; reg set
+        get-value-code ; seq1
+        (make-instruction-sequence  ; seq2
+          '(env val)     ; needs
+          (list target)  ; modifies
+          '((perform (op set-variable-value!) (const ,var) (reg val) (reg env))
+            (assign ,target (const ok))
+          )
+        )
+      )
+    )
+  )
+)
+
+(define (compile-definition exp target linkage)
+  (let ((var (assignment-variable exp))
+        (get-value-code (compile (assignment-value exp) 'val 'next))
+       )
+    (end-with-linkage linkage
+      (preserving 
+        '(env) ; reg set
+        get-value-code ; seq1
+        (make-instruction-sequence  ; seq2
+          '(env val)     ; needs
+          (list target)  ; modifies
+          '((perform (op define-variable!) (const ,var) (reg val) (reg env))
+            (assign ,target (const ok))
+          )
+        )
+      )
+    )
+  )
+)
+```
+
+
+
+
+
+
+
