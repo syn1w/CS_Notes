@@ -4231,7 +4231,7 @@ signal-error
 
 
 
-简单表达式的编译
+简单表达式的编译：
 
 ```scheme
 (define (compile-self-evaluating exp target linkage)
@@ -4314,6 +4314,138 @@ signal-error
 ```
 
 
+
+条件表达式：
+
+编译一个 `if` 表达式将产生出指令序列具有以下形式：
+
+```scheme
+  (compile predicate val next)
+  (test (op false?) (reg val))
+  (branch (label false-branch))
+true-branch
+  ; ...
+false-branch
+  ; ...
+after-if
+```
+
+比较复杂的处理是真分支的连接的处理，如果条件表达式的连接是 `return` 或标号，真分支和假分支都用这个连接。如果是 `next`，真分支就需要跳到 `after-if` 标号
+
+```scheme
+(define (compile-if exp target linkage)
+  (let ((t-branch (make-label 'true-branch))
+        (f-branch (make-label 'false-branch))
+        (after-if (make-label 'after-if))
+       )
+    (let ((consequent-linkage (if (eq? linkage 'next) after-if linkage)))
+      (let ((p-code (compile (if-predicate exp) 'val 'next))
+            (c-code (compile (if-consequent exp) target consequent-linkage))
+            (a-code (compile (if-alternative exp) target linkage)
+           )
+        (preserving '(env continue)
+          p-code
+          (append-instruction-sequences
+            (make-instruction-sequence '(val) '()
+              '((test (op false?) (reg val))
+                (branch (label ,f-branch))
+              )
+            )
+            (parallel-instruction-sequences
+              (append-instruction-sequences t-branch c-code)
+              (append-instruction-sequences f-branch a-code)
+            )
+            after-if
+          )
+        )
+      )
+    )
+  )
+)
+```
+
+`cond` 是一个派生表达式，编译器把 `cond` 转换为 `if` 表达式
+
+```scheme
+(define (compile-cond exp target linkage)
+  (compile (cond->if exp) target linkage)
+)
+```
+
+
+
+序列表达式：
+
+```scheme
+(define (compile-sequence seq target linkage)
+  (if (last-exp? seq)
+    (compile (first-exp seq) target linkage)
+    (preserving
+      '(env continue)
+      (compile (first-exp seq) target linkage)
+      (compile-sequence (rest-exp seq) target linkage)
+    )
+  )
+)
+```
+
+
+
+lambda 表达式：
+
+编译 lambda 表达式，还有生成出其过程，这个 body 在构造期间并不执行，将 body 的目标代码放到紧挨着 lambda 的代码之后是很方便的。
+
+如果 lambda 的连接是 `next`，需要跳到 `after-lambda` 来跳过 lambda 过程体的执行。
+
+```scheme
+(define (compile-lambda exp target linkage)
+  (let ((proc-entry (make-label 'entry))
+        (after-lambda (make-label 'after-lambda))
+       )
+    (let ((lambda-linkage) (if (eq? linkage 'next) after-lambda linkage))
+      (append-instruction-sequences
+        (tack-on-instruction-sequences
+          (end-with-linkage lambda-linkage
+            (make-instruction-sequence
+              '(env)
+              (list target)
+              '((assign ,target 
+                        (op make-compiled-procedure)
+                        (label ,proc-entry)
+                        (reg env))
+              )
+            )
+          )
+
+          (compile-lambda-body exp proc-entry)
+        )
+
+        after-lambda
+      )
+    )
+  )
+)
+
+(define (compile-lambda-body exp proc-entry)
+  (let ((formals (lambda-parameters exp)))
+    (append-instruction-sequences
+      (make-instruction-sequence '(env proc argl) '(env)
+        '(,proc-entry
+          (assign env (op compiled-procedure-env) (reg proc))
+          (assign env
+                  (op extend-environment)
+                  (const ,formals)
+                  (reg argl)
+                  (reg env)
+          )
+        )
+      )
+
+      (compile-sequence (lambda-body exp) 'val return)
+    )
+  )
+)
+```
 
 
 
