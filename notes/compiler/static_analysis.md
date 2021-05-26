@@ -28,13 +28,13 @@ void printMsg(FILE* file, char* msg) {
 
 ```c
 void printMsg(FILE* file, char* msg) {
-	if (file == NULL) {
-		logError("attempt to print message to null file");
-	} else if (msg == NULL) {
-		logError("attempt to print null message");
-	} else {
-		fprintf(file, msg);
-	}
+    if (file == NULL) {
+        logError("attempt to print message to null file");
+    } else if (msg == NULL) {
+        logError("attempt to print null message");
+    } else {
+        fprintf(file, msg);
+    }
 }
 ```
 
@@ -46,13 +46,13 @@ void printMsg(FILE* file, char* msg) {
 
 ```c
 void printMsg(FILE* file, char* msg) {
-	if (file == NULL) {
-		logError("attempt to print message to null file");
+    if (file == NULL) {
+        logError("attempt to print message to null file");
 	} else if (msg == NULL) {
-		logError("attempt to print null message");
-	} else {
-		fprintf(file, "%.128s", msg);
-	}
+        logError("attempt to print null message");
+    } else {
+        fprintf(file, "%.128s", msg);
+    }
 }
 ```
 
@@ -245,9 +245,9 @@ parser 使用 *context-free grammar*(CFG) 匹配 token 流。形成了解析树(
 
 ```c
 if (a > b) {
-  nConsec = 0;
+    nConsec = 0;
 } else {
-  s1 = getHexChar(1);
+    s1 = getHexChar(1);
 }
 return nConsec;
 ```
