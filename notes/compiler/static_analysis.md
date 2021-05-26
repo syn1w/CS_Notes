@@ -48,7 +48,7 @@ void printMsg(FILE* file, char* msg) {
 void printMsg(FILE* file, char* msg) {
     if (file == NULL) {
         logError("attempt to print message to null file");
-	} else if (msg == NULL) {
+    } else if (msg == NULL) {
         logError("attempt to print null message");
     } else {
         fprintf(file, "%.128s", msg);
