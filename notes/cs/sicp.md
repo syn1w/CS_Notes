@@ -4447,7 +4447,244 @@ lambda 表达式：
 )
 ```
 
+`compile-lambda` 使用了 `tack-on-instruction-sequences`，而不是 `append-instruction-sequences`，因为可以把 `lambda` 和 `body` 看作一个指令集，而不是两个指令集 `append` 操作
 
 
 
+对过程应用的编译：
+
+具体以下的形式：
+
+过程操作符的编译结果，目标为 `proc`，连接为 `next`
+
+求值实际参数并构造实际参数表，放入 `argl`
+
+用给定的目标和连接编译过程调用的结果
+
+
+
+求值操作符和实际参数时，需要保存和恢复 `env, proc, argl`，得到实际参数列表之后，再与过程操作符的编译结果和执行过程调用的代码组合到一起。
+
+拼接这一代码序列的过程中，运算符求值前后必须保存和恢复 `env`
+
+首先将编译操作符生成的放入 `proc`，然后构建参数列表（分别对每个实参进行求值，将结果放入 `val`，然后通过 `cons` 到 `argl` 中，需要从最后一个参数开始进行处理，得到 `argl` 才是从第一个实参开始）。
+
+```scheme
+(define (compile-application exp target linkage)
+  (let ((proc-code (compile (operator exp) 'proc 'next))
+        (operand-codes (map (lambda (operand) (compile operand 'val 'next))
+                            (operands exp))
+        )
+       )
+    (preserving '(env continue)  ; proc-code and rest
+      proc-code ; proc-code
+      (preserving '(proc continue) ; arglist and procedure-call
+        (construct-arglist operands-code) ; argl-code
+        (compile-procedure-call target linkage) ; call-code
+      )
+    )
+  )
+)
+```
+
+
+
+接下来就是对实际参数列表构建过程进行代码生成：
+
+```scheme
+(define (construct-arglist operand-codes)
+  (let ((operand-codes (reverse operand-codes)))
+    (if (null? operand-codes)
+      (make-instruction-sequence '() '(argl) ; true
+        '((assign argl (const ())))
+      )
+      (let ((code-to-get-last-arg  ; false
+             (append-instruction-sequences
+               (car operand-codes)
+               (make-instruction-sequence '(val) '(argl)
+                 '((assign argl (op list) (reg val)))
+               )
+             )
+            )
+           )
+        (if (null? (cdr operand-codes))
+          code-to-get-last-arg ; true: last-operand
+          (preserving '(env) ; false: last-operand and rest-operand...
+            code-to-get-last-arg
+            (code-to-get-rest-args (cdr operand-codes))
+          )
+        )
+      )
+    )
+  )
+)
+
+(define (code-to-get-rest-args operand-codes)
+  (let ((code-for-next-arg
+         (preserving '(argl))
+         (car operand-codes)
+         (make-instruction-sequence '(val argl) '(argl)
+           (op cons) (reg val) (reg argl)
+         )
+        )
+       )
+    (if (null? (cdr operand-codes))
+      code-for-next-arg ; true
+      (preserving '(env)
+        code-for-next-arg
+        (code-to-get-rest-args (cdr operand-codes))
+      )
+    )
+  )
+)
+```
+
+
+
+完成过程和实际参数的代码生成，接下来需要生成调用过程的代码生成，需要把 `proc` 里的过程应用到 `argl` 里的实际参数。
+
+类似于 `apply` 过程，进行分派操作。
+
+过程应用具有以下的形式：
+
+```scheme
+  (test (op primitive-procedure?) (reg proc))
+  (branch (label primitive-branch))
+compiled-branch
+  ; ... apply compiled procedure
+primitive-branch
+  (assign target (op apply-primitive-procedure) (reg proc) (reg argl))
+  linkage
+after-call
+```
+
+
+
+```scheme
+(define (compile-procedure-call target linkage)
+  (let ((primitive-branch (make-branch 'primitive-branch))
+        (compiled-branch (make-branch 'compiled-branch))
+        (after-call (make-branch 'after-call))
+       )
+
+    (let ((compiled-linkage (if (eq? linkage 'next) after-call linkage)))
+      (append-instruction-sequences
+        (make-instruction-sequence '(proc) '() ; test primitive-procedure
+          '((test (op primitive-procedure?) (reg proc))
+            (branch (label ,primitive-branch))
+           )
+        )
+        (parallel-instruction-sequences
+          (append-instruction-sequences
+            compiled-branch
+            (compile-proc-apply target compiled-linkage)
+          )
+          (append-instruction-sequences
+            primitive-branch
+            (end-with-linkage linkage
+              (make-instruction-sequence '(proc argl) '(list target)
+                '((assign ,target
+                          (op apply-primitive-procedure)
+                          (reg proc)
+                          (reg argl)))
+              )
+            )
+          )
+        )
+
+        after-call
+      )
+    )
+  )
+)
+```
+
+
+
+处理过程应用的代码是编译器中最难的部分，一个编译出的过程有一个入口点，表明了这个过程的开始位置。入口点的代码能够计算出一个结果，放入 `val`，可以通过 `(goto (reg val))` 跳转到入口点执行，然后通过 `(goto (reg continue))` 返回。
+
+如果连接是 `label` 的话，生成的过程应用代码形式如下：
+
+```scheme
+  (assign continue (label proc-return))
+  (assign val (op compiled-procedure-entry) (reg proc))
+  (goto (reg val))
+proc-return
+  (assign ,target (reg val))
+  (goto (label linkage))
+```
+
+
+
+如果连接是 `return`，生成的过程应用代码形式如下：
+
+```scheme
+  (save continue)
+  (assign continue (label proc-return))
+  (assign val (op compiled-procedure-entry) (reg proc))
+  (goto (reg val))
+proc-return
+  (assign ,target (reg val))
+  (restore continue)
+  (goto (reg continue))
+```
+
+
+
+对于过程而言，如果这里 `target` 就是 `val`，我们可以对上述过程进行简化
+
+如果连接是 `label` 的话：
+
+```scheme
+(assign continue (label linkage))
+(assign val (op compiled-procedure-entry) (reg proc))
+(goto (reg val))
+```
+
+如果连接是 `return`，`continue` 已经保存需要返回的地址：
+
+```scheme
+(assign val (op compiled-procedure-entry) (reg proc))
+(goto (reg val))
+```
+
+
+
+过程应用的代码生成：
+
+```scheme
+(define (compile-proc-apply target linkage)
+  (cond ((and (eq? target 'val) (not (eq? linkage 'return)))
+          (make-instruction-sequence '(proc) all-regs
+          '((assign continue (label ,linkage))
+            (assign val (op compiled-procedure-entry) (reg proc))
+            (goto (reg val))
+           )
+          )
+        )
+        ((and (not (eq? target 'val)) (not (eq? linkage 'return)))
+          (let ((proc-return (make-label 'proc-return)))
+            (make-instruction-sequence '(proc) all-regs
+              '((assign continue (label ,proc-return))
+                (assign val (op compiled-procedure-entry) (reg proc))
+                (goto (reg val))
+                ,proc-return
+                (assign ,target (reg val))
+                (goto (label ,linkage))
+               )
+            )
+          )
+        )
+
+        ((and (eq? target 'val) (eq? linkage 'return))
+          (make-instruction-sequence '(proc continue) all-regs
+            '((assign val (op compiled-procedure-entry) (reg proc))
+              (goto (reg val))
+             )
+          )
+        )
+        (else (error "return linkage, target not val -- COMPILE" target))
+  )
+)
+```
 
