@@ -244,30 +244,30 @@ AT&T 寻址模式
 
 |       Opcode        |                  Meaning                   |
 | :-----------------: | :----------------------------------------: |
-|        `MOV`        | move to from/ between memory and registers |
-|       `CMOV*`       |         Various conditional moves          |
-|       `XCHG`        |                  Exchange                  |
-|       `BSWAP`       |                 Byte swap                  |
-|     `PUSH/POP`      |                Stack usage                 |
-|      `ADD/ADC`      |               Add/with carry               |
-|      `SUB/SBC`      |            Subtract/with carry             |
-|     `MUL/IMUL`      |          Multiply unsigned/signed          |
-|     `DIV/IDIV`      |           Divide unsigned/signed           |
-|      `INC/DEC`      |            Increment/Decrement             |
-|        `NEG`        |                   Negate                   |
-|        `CMP`        |                  Compare                   |
-|  `AND/OR/XOR/NOT`   |             Bitwise operations             |
-|      `SHR/SAR`      |       Shift right logical/arithmetic       |
-|      `SHL/SAL`      |       Shift left logical/arithmetic        |
-|      `ROR/ROL`      |             Rotate right/left              |
-|      `RCR/RCL`      |    Rotate right/left through carry bit     |
-|    `BT/BTS/BTR`     |         Bit test/and set/and reset         |
-|        `JMP`        |             Unconditional jump             |
-|      `JMP/J*`       |           Jump/conditional jump            |
-| `LOOP/LOOPE/LOOPNE` |              Loop with `ECX`               |
-|     `CALL/RET`      |           Call subroutine/return           |
-|        `NOP`        |                No operation                |
-|       `CPUID`       |              CPU information               |
+|        `mov`        | move to from/ between memory and registers |
+|       `cmov*`       |         Various conditional moves          |
+|       `xchg`        |                  Exchange                  |
+|       `bswap`       |                 Byte swap                  |
+|     `push/pop`      |                Stack usage                 |
+|      `add/adc`      |               Add/with carry               |
+|      `sub/sbc`      |            Subtract/with carry             |
+|     `mul/imul`      |          Multiply unsigned/signed          |
+|     `div/idiv`      |           Divide unsigned/signed           |
+|      `inc/dec`      |            Increment/Decrement             |
+|        `neg`        |                   Negate                   |
+|        `cmp`        |                  Compare                   |
+|  `and/or/xor/not`   |             Bitwise operations             |
+|      `shr/sar`      |       Shift right logical/arithmetic       |
+|      `shl/sal`      |       Shift left logical/arithmetic        |
+|      `ror/rol`      |             Rotate right/left              |
+|      `rcr/rcl`      |    Rotate right/left through carry bit     |
+|    `bt/bts/btr`     |         Bit test/and set/and reset         |
+|        `jmp`        |             Unconditional jump             |
+|        `j*`         |           Jump/conditional jump            |
+| `loop/loope/loopne` |              Loop with `ECX`               |
+|     `call/ret`      |           Call subroutine/return           |
+|        `nop`        |                No operation                |
+|       `cpuid`       |              CPU information               |
 
 
 
@@ -287,12 +287,12 @@ AT&T 寻址模式
 
 **数据传送指令**
 
-|        Instruction        |    效果     |       描述       |
-| :-----------------------: | :---------: | :--------------: |
-|    `mov[b,w,l,q] S, D`    |   `D = S`   |                  |
-|      `movabsq I, R`       |   `R = I`   |                  |
-|  `movz[bw,bl,wl,bq,wq]`   | `R = ZE(S)` |  零扩展进行传递  |
-| `movs[bw,bl,wl,bq,wq,lq]` | `R = SE(S)` | 符号扩展进行传递 |
+|        Instruction        |    效果     |           描述           |
+| :-----------------------: | :---------: | :----------------------: |
+|    `mov[b,w,l,q] S, D`    |   `D = S`   |                          |
+|      `movabsq I, R`       |   `R = I`   | `I` 为任意 64-bit 立即数 |
+|  `movz[bw,bl,wl,bq,wq]`   | `R = ZE(S)` |      零扩展进行传递      |
+| `movs[bw,bl,wl,bq,wq,lq]` | `R = SE(S)` |     符号扩展进行传递     |
 
 ```txt
 b: byte, w: word(2 bytes), l: 4 bytes, q: 8 bytes, absq: 绝对四字
@@ -335,10 +335,10 @@ movq    %rcx, -16(%rbp)   # px = %rcx
 # }
 
 scale(long, long, long):           # @scale(long, long, long)
-	leaq    (%rdi,%rsi,4), %rax    # %rax = x + 4y 
-	leaq    (%rdx,%rdx,2), %rcx    # %rcx = z + 2z = 3z
-	leaq    (%rax,%rcx,4), %rax    # %rax = %rax + %rcx * 4 = x + 4y + 12z
-	retq
+    leaq    (%rdi,%rsi,4), %rax    # %rax = x + 4y 
+    leaq    (%rdx,%rdx,2), %rcx    # %rcx = z + 2z = 3z
+    leaq    (%rax,%rcx,4), %rax    # %rax = %rax + %rcx * 4 = x + 4y + 12z
+    retq
 ```
 
 
@@ -347,10 +347,10 @@ scale(long, long, long):           # @scale(long, long, long)
 
 |          Instruction           |                  效果                   |              描述              |
 | :----------------------------: | :-------------------------------------: | :----------------------------: |
-|      `INC/DEC/NEG/NOT D`       |           `D++/D--/D=-D/D=~D`           |             unary              |
-| `ADD/SUB/IMUL/XOR/OR/AND S, D` |              `D = S op D`               |             binary             |
-|     `SAL/SHL/SAR/SHR k, D`     | `D = D << k/../D = D >>A k/D = D >>L k` |     逻辑左移和算术左移相同     |
-|    // 接下来为特殊算术指令     |                                         |                                |
+|      `inc/dec/neg/not D`       |           `D++/D--/D=-D/D=~D`           |             unary              |
+| `add/sub/imul/xor/or/and S, D` |              `D = S op D`               |             binary             |
+|     `sal/shl/sar/shr k, D`     | `D = D << k/../D = D >>A k/D = D >>L k` |     逻辑左移和算术左移相同     |
+|      接下来为特殊算术指令      |                                         |                                |
 |         `imulq/mulq S`         |        `%rdx:%rax = S * R[%rax]`        | 高位放在 `RDX`，低位放在 `RAX` |
 |             `cltq`             |             `RAX = SE(EAX)`             |      `EAX `符号扩展到 RAX      |
 |             `clto`             |        `%rdx:%rax = SE(R[%rax])`        |         `RAX` 符号扩展         |
@@ -361,15 +361,15 @@ scale(long, long, long):           # @scale(long, long, long)
 
 **控制指令**
 
-|      Instruction       |          效果          |     描述      |
-| :--------------------: | :--------------------: | :-----------: |
-|      `CMP S1, S2`      |       `S2 - S2`        |     比较      |
-|     `TEST S1, S2`      |       `S1 & S2`        |     测试      |
-|     `set[cond] D`      |      `D = XFLAG`       |  获取条件码   |
-|  `JMP Label/*operand`  |                        | 直接/间接跳转 |
-|      `CMOV* S, R`      |  `if cond then R = S`  |  条件 `MOV`   |
-| `callq Label/*operand` | `pushq RIP, jmp label` |     call      |
-|         `retq`         | `popq addr, jmp addr`  |    return     |
+|      Instruction       |          效果          |         描述          |
+| :--------------------: | :--------------------: | :-------------------: |
+|      `cmp S1, S2`      |       `S2 - S2`        |         比较          |
+|     `test S1, S2`      |       `S1 & S2`        |         测试          |
+|     `set[cond] D`      |      `D = XFLAG`       |      设置条件码       |
+|  `jmp Label/*operand`  |                        |     直接/间接跳转     |
+|      `cmov* S, R`      |  `if cond then R = S`  | 条件 `mov`，*为条件码 |
+| `callq Label/*operand` | `pushq RIP, jmp label` |         call          |
+|         `retq`         | `popq addr, jmp addr`  |        return         |
 
 
 
