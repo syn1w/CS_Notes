@@ -154,7 +154,7 @@ YUV 420 SP 的 NV12 格式，先存储 Y 分量，再交替存储 UV 分量，�
 
 标清电视(SDTV) BT.470 (PAL 或 NTSC) 定义 YUV 和 RGB 的转换公式为：
 
-![convert_rgb_yuv_sdtv](https://latex.codecogs.com/gif.latex?{\begin{aligned}{\begin{bmatrix}Y'\\U\\V\end{bmatrix}}&={\begin{bmatrix}0.299&0.587&0.114\\-0.14713&-0.28886&0.436\\0.615&-0.51499&-0.10001\end{bmatrix}}{\begin{bmatrix}R\\G\\B\end{bmatrix}} \\{\begin{bmatrix}R\\G\\B\end{bmatrix}}&={\begin{bmatrix}1&0&1.13983\\1&-0.39465&-0.58060\\1&2.03211&0\end{bmatrix}}{\begin{bmatrix}Y'\\U\\V\end{bmatrix}}\end{aligned}})
+$${\begin{aligned}{\begin{bmatrix}Y'\\U\\V\end{bmatrix}}&={\begin{bmatrix}0.299&0.587&0.114\\-0.14713&-0.28886&0.436\\0.615&-0.51499&-0.10001\end{bmatrix}}{\begin{bmatrix}R\\G\\B\end{bmatrix}} \\{\begin{bmatrix}R\\G\\B\end{bmatrix}}&={\begin{bmatrix}1&0&1.13983\\1&-0.39465&-0.58060\\1&2.03211&0\end{bmatrix}}{\begin{bmatrix}Y'\\U\\V\end{bmatrix}}\end{aligned}}$$
 
 
 
@@ -166,7 +166,7 @@ BT.610 定义 U，V 的取值范围为 [-0.5, +0.5]
 
 高清电视(HDTV) BT.709 定义转换公式为：
 
-![convert_rgb_yuv_hdtv](https://latex.codecogs.com/gif.latex?{\begin{aligned}{\begin{bmatrix}Y'\\U\\V\end{bmatrix}}&={\begin{bmatrix}0.2126&0.7152&0.0722\\-0.09991&-0.33609&0.436\\0.615&-0.55861&-0.05639\end{bmatrix}}{\begin{bmatrix}R\\G\\B\end{bmatrix}}\\{\begin{bmatrix}R\\G\\B\end{bmatrix}}&={\begin{bmatrix}1&0&1.28033\\1&-0.21482&-0.38059\\1&2.12798&0\end{bmatrix}}{\begin{bmatrix}Y'\\U\\V\end{bmatrix}}\end{aligned}})
+$${\begin{aligned}{\begin{bmatrix}Y'\\U\\V\end{bmatrix}}&={\begin{bmatrix}0.2126&0.7152&0.0722\\-0.09991&-0.33609&0.436\\0.615&-0.55861&-0.05639\end{bmatrix}}{\begin{bmatrix}R\\G\\B\end{bmatrix}}\\{\begin{bmatrix}R\\G\\B\end{bmatrix}}&={\begin{bmatrix}1&0&1.28033\\1&-0.21482&-0.38059\\1&2.12798&0\end{bmatrix}}{\begin{bmatrix}Y'\\U\\V\end{bmatrix}}\end{aligned}}$$
 
 同样，RGB、Y' 的取值范围为 [0, 1]，U 的取值范围为 [-0.436, +0.436]，V 取值范围为 [-0.615, +0.615]
 
