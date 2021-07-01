@@ -172,7 +172,7 @@ $${\displaystyle {\begin{aligned}{\begin{bmatrix}Y'\\U\\V\end{bmatrix}}&={\begin
 
 
 
-**各种图片格式**
+### 图片格式
 
 BMP 是由微软开发的，常见的无损图片格式之一，内部使用的就是 RGB 格式，数据区直接排列着每一个像素对应的 RGB 或 RGBA。800 * 600 的 24-bit 图片需要占据约 1.4 MB 的空间。
 
@@ -296,6 +296,22 @@ x264 是 H.264 的开源编码器，提供了 GUI 和命令行工具，提供了
 
 
 
+### 封装格式
+
+封装格式规定了视频码流和音频码流按照一定的格式存储到一个文件。封装格式分析工具 Elecard Format Analyzer
+
+- AVI: 微软推出的多媒体文件格式，AVI 已经属于老旧的技术，但是由于 Windows 的通用性，和简单易懂的开发 API，仍被广泛使用
+- MOV: 苹果开发的 QuickTime 多媒体框架。
+- MP4: MEPG-4 Part 14，是一种标准的数字多媒体容器格式。因其可容纳支持比特流的视频流，为流媒体。FLV 和 MP4 极为相近，多数情况下 FLV 直接更名为 `.mp4` 也能播放
+- TS: 全称为 MPEG2-TS(Transport Stream)，主要应用于实时传送的节目。DVD 的格式为 MPEG42-PS(Program Stream)，比如把 DVD 上 VOB 文件截掉一段数据，那么整个文件将无法解码。而 TS 要求从视频流的任一片段开始都是可以独立解码的。通常后缀是 `ts, mpg, mpeg`
+- FLV: Adobe Flash Vedio，是一种网络视频格式，用作流媒体格式，它的出现有效地解决了视频文件导入 Flash 后，使导出的 SWF 文件体积庞大，不能在网络上有效使用等缺点。
+- MKV: Matroska，这个封装格式可把多种不同编码的影像及16条或以上不同格式的音频和语言不同的字幕封装到一个 Matroska Media 档内。它也是其中一种开放源代码的多媒体封装格式。其实 mkv 只是 Matroska 媒体系列的其中一种文件格式。是俄语“матрёшка”(俄罗斯套娃)的误读，工作原理就跟层层套叠的俄罗斯娃娃一样，是“愈包愈紧”的。
+- RMVB: RealMedia Variable Bitrate，是由 RealNetworks 开发的 RealMedia 多媒体封装格式的一种动态比特率扩展。采用此格式文件的后缀名为 `.rmvb`。
+
+...
+
+
+
 **参考资料**：
 
 [运动补偿 wiki](https://zh.wikipedia.org/wiki/%E8%BF%90%E5%8A%A8%E8%A1%A5%E5%81%BF)
@@ -303,4 +319,51 @@ x264 是 H.264 的开源编码器，提供了 GUI 和命令行工具，提供了
 [H.264 wiki](https://zh.wikipedia.org/wiki/H.264/MPEG-4_AVC)
 
 [H.265 wiki](https://zh.wikipedia.org/wiki/%E9%AB%98%E6%95%88%E7%8E%87%E8%A7%86%E9%A2%91%E7%BC%96%E7%A0%81)
+
+
+
+
+
+# 二、环境搭建
+
+## 1. 安装 FFmpeg
+
+我这里直接使用 vcpkg 安装 FFmpeg 64-bit 静态库
+
+```sh
+vcpkg install FFmpeg:x64-Windows-static
+```
+
+等待编译安装即可
+
+
+
+第一个 FFmpeg 程序
+
+```c++
+#include <iostream>
+
+extern "C" {
+#include <libavcodec/avcodec.h>
+}
+
+using namespace std;
+
+#pragma comment(lib, "bcrypt.lib")
+
+int main(int argc, char* argv[]) {
+    cout << "avcodec_configuration:" << endl;
+	cout << avcodec_configuration() << endl;
+	return 0;
+}
+```
+
+
+
+vcpkg 会自动处理 FFmpeg 头文件和库，因为库使用了 `bcrypt.lib`，需要把这个库链接进来。编译运行，输出
+
+```txt
+avcodec_configuration:
+--toolchain=msvc --prefix=/d/software/vcpkg/packages/ffmpeg_x64-windows-static/debug --enable-asm --enable-yasm --disable-doc --enable-debug --enable-runtime-cpudetect --disable-openssl --disable-ffmpeg --disable-ffplay --disable-ffprobe --disable-libvpx --disable-libx264 --disable-opencl --disable-lzma --disable-bzlib --enable-avresample --disable-cuda --disable-nvenc --disable-cuvid --disable-libnpp --extra-cflags='-DHAVE_UNISTD_H=0' --debug --extra-cflags=-MTd --extra-cxxflags=-MTd
+```
 
