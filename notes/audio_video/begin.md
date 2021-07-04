@@ -42,7 +42,7 @@
 
 - WAV: 上古时期微软开发的音频格式，使用 RIFF 文件规范存储，WAV 编码的一种实现方式是在 PCM 数据前面添加 44 字节，用来描述 PCM 的采样率、声道数、数据格式等信息。通常不会压缩，音质非常好。
 - MP3: MP3实质是对PCM数据中涉及的人类听觉不重要的部分进行舍弃，从而压缩得到较小的文件，具有不错的压缩比，使用 LAME(MP3 一种实现) 的中高码率的 MP3 文件，听感接近 WAV 文件。音质在 128 kbps 表现还不错，压缩比比较高，使用广泛，兼容性好。
-- AAC: 通过一些附加的编码技术，衍生出 LC-AAC、HE-AAC、HE-AAC v2 等编码格式。LC-AAC 主要用于中高码率的场景（>= 80 kbps），HE-AAC 主要用于中低码率 (<= 80 kbps)，HE-AAC v2 主要用于低码率(<= 48 kbps)。在小于 128 kbps 的码率下表现优异，并且用于视频中的音频编码。
+- AAC: 通过一些附加的编码技术，衍生出 LC-AAC、HE-AAC、HE-AAC v2 等编码格式。LC-AAC 主要用于中高码率的场景（>= 80 kbps），HE-AAC 主要用于中低码率 (<= 80 kbps)，HE-AAC v2 主要用于低码率(<= 48 kbps)。在小于 128 kbps 的码率下表现优异，并且用于视频中的音频编码。数据由一个一个的 ADTS 包构成。
 - Ogg: 各种码率下都比较优秀，尤其在中低码率下。Ogg 在受支持情况不太好，无论在软件还是硬件上，流媒体特性不支持。适用于语音聊天的音频消息场景。
 
 
@@ -286,7 +286,7 @@ Slice 分为以下类型：I Slice、P Slice、B Slice、SP Slice、SI Slice。I
 
 在数据的格式定义上，H.264支持 NAL(Network Abstraction Layer，可让其编码的数据在各种类型的网络上传输) 结构，支持灵活的参数集结构、宏块和Slice排序等，可以具备较强的纠错能力和网络操作灵活度。
 
-NAL 的定义中，每一个包称作 NAL Unit，包含 NALU Header和 RBSP(Raw Byte Sequence Payload)。NALU 的 Type 取值为 0～31，定义了该包是用来传输数据还是编码数据。一种常用对 H.264 的打包方式是将其 NALU 封装到 RTP 包内。对 SPS、PPS 等内容可将多个 NALU 包组合成一个 RTP 包，对相同时间戳的 NALU包，也可放于一个 RTP 包内。又或者一个 NALU 包可以对应一个 RTP 包，也可以拆成多个 RTP 包进行传输
+NAL 的定义中，每一个包称作 NAL Unit，包含 NALU Header和 RBSP(Raw Byte Sequence Payload)。最常见的情况是 1 个 NALU 包含了 1 帧画面压缩编码后的数据。NALU 的 Type 取值为 0～31，定义了该包是用来传输数据还是编码数据。一种常用对 H.264 的打包方式是将其 NALU 封装到 RTP 包内。对 SPS、PPS 等内容可将多个 NALU 包组合成一个 RTP 包，对相同时间戳的 NALU包，也可放于一个 RTP 包内。又或者一个 NALU 包可以对应一个 RTP 包，也可以拆成多个 RTP 包进行传输
 
 
 
@@ -298,7 +298,7 @@ x264 是 H.264 的开源编码器，提供了 GUI 和命令行工具，提供了
 
 ### 封装格式
 
-封装格式规定了视频码流和音频码流按照一定的格式存储到一个文件。封装格式分析工具 Elecard Format Analyzer
+封装格式规定了视频码流和音频码流按照一定的格式存储到一个文件。
 
 - AVI: 微软推出的多媒体文件格式，AVI 已经属于老旧的技术，但是由于 Windows 的通用性，和简单易懂的开发 API，仍被广泛使用
 - MOV: 苹果开发的 QuickTime 多媒体框架。
@@ -312,6 +312,16 @@ x264 是 H.264 的开源编码器，提供了 GUI 和命令行工具，提供了
 
 
 
+## 4. tools
+
+音频采样数据查看工具 Adobe Audition
+
+封装格式分析工具 Elecard Format Analyzer
+
+视频编码分析工具 Elecard Stream Eye
+
+
+
 **参考资料**：
 
 [运动补偿 wiki](https://zh.wikipedia.org/wiki/%E8%BF%90%E5%8A%A8%E8%A1%A5%E5%81%BF)
@@ -320,50 +330,70 @@ x264 是 H.264 的开源编码器，提供了 GUI 和命令行工具，提供了
 
 [H.265 wiki](https://zh.wikipedia.org/wiki/%E9%AB%98%E6%95%88%E7%8E%87%E8%A7%86%E9%A2%91%E7%BC%96%E7%A0%81)
 
+[封装格式](http://debugly.cn/FFmpegTutorial/md/illiteracy/0x01.html)
 
 
 
+# 二、FFmpeg
 
-# 二、环境搭建
+## 1. 工具
 
-## 1. 安装 FFmpeg
-
-我这里直接使用 vcpkg 安装 FFmpeg 64-bit 静态库
+**ffmpeg**
 
 ```sh
-vcpkg install FFmpeg:x64-Windows-static
+ffmpeg [options] [[infile options] -i infile]... {[outfile options] outfile}...
 ```
 
-等待编译安装即可
+常用选项：
 
-
-
-第一个 FFmpeg 程序
-
-```c++
-#include <iostream>
-
-extern "C" {
-#include <libavcodec/avcodec.h>
-}
-
-using namespace std;
-
-#pragma comment(lib, "bcrypt.lib")
-
-int main(int argc, char* argv[]) {
-    cout << "avcodec_configuration:" << endl;
-	cout << avcodec_configuration() << endl;
-	return 0;
-}
+```sh
+-t  duration           # 设置时间长度，格式 hh:mm:ss
+-ss position           # 设置起始时间，格式 hh:mm:ss
+-b:v bitrate           # 设置视频码率
+-b:a bitrate           # 设置音频码率
+-r fps                 # 设置帧率
+-s wxh                 # 设置帧大小，格式为 WxH
+-c:v codec             # 设置视频编码器
+-c:a codec             # 设置音频编码器
+-ar freq               # 设置音频采样率
 ```
 
 
 
-vcpkg 会自动处理 FFmpeg 头文件和库，因为库使用了 `bcrypt.lib`，需要把这个库链接进来。编译运行，输出
+**ffplayer**
 
-```txt
-avcodec_configuration:
---toolchain=msvc --prefix=/d/software/vcpkg/packages/ffmpeg_x64-windows-static/debug --enable-asm --enable-yasm --disable-doc --enable-debug --enable-runtime-cpudetect --disable-openssl --disable-ffmpeg --disable-ffplay --disable-ffprobe --disable-libvpx --disable-libx264 --disable-opencl --disable-lzma --disable-bzlib --enable-avresample --disable-cuda --disable-nvenc --disable-cuvid --disable-libnpp --extra-cflags='-DHAVE_UNISTD_H=0' --debug --extra-cflags=-MTd --extra-cxxflags=-MTd
+```sh
+ffplayer filename
 ```
+
+
+
+## 2. 库
+
+ffmpeg 4.2 版本有 8 个库：
+
+- avcodec，编解码库
+- avformat，封装格式处理
+- avfilter，滤镜特效处理
+- avdevice，各种设备的输入输出
+- avutil，工具库
+- avresample，处理音频重采样，采样格式转换和混合
+- swresample，sw 是 software 的缩写，功能由通用 CPU 实现，和 aversample 作用一样
+- swscale，sw 同上，视频像素格式数据转换
+
+
+
+**常用的 FFmpeg 数据结构**
+
+```c
+struct AVFormatContext; // 封装格式上下文，保存了封装格式的相关信息
+struct AVInputFormat; // 每种封装格式(比如 FLV, MKV, MP4, AVI) 都对应一个该结构体
+struct AVStream; // 视频文件中，视频（音频）流
+struct AVCodecContext; // 编码器上下文信息，保存了视频（音频）编解码相关信息
+struct AVCodec; // 每种视频（音频）编解码器(比如 H.264)对应一个该结构体
+struct AVPacket; // 存储一帧压缩编码数据
+struct AVFrame; // 存储一帧解码后像素(采样)数据
+```
+
+
 
