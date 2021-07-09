@@ -1,8 +1,8 @@
-# CMake
+# CMake 详解
 
 # 一、介绍
 
-CMake 是一种跨平台工具，用来自动化构建、测试和打包软件。使用 CMake 的流程是先生成对应平台的工程文件(比如 Windows 平台可以生成 VS 工程，macOS 平台可以生成 Xcode 或 Makefile 文件，Linux 平台可以生成 Makefile 文件等等)，之后再进行对应的操作。
+CMake 是一种跨平台工具，用来自动化构建、测试和打包软件。使用 CMake 的流程是编写 CMake 脚本，使用脚本自动生成对应平台的工程文件(比如 Windows 平台可以生成 VS 工程，macOS 平台可以生成 Xcode 或 Makefile 文件，Linux 平台可以生成 Makefile 文件等等)，再进行只会的构建、测试、打包。
 
 以下内容对 CMake v3.16 进行说明。
 
@@ -10,7 +10,7 @@ CMake 是一种跨平台工具，用来自动化构建、测试和打包软件�
 
 # 二、基本概念
 
-## 1. cmake
+## 1. CMake
 
 通过 CMake 语言([CMake language](https://cmake.org/cmake/help/v3.16/manual/cmake-language.7.html#manual:cmake-language(7))) 指定特定平台的构建系统(buildsystem)。
 
@@ -20,7 +20,7 @@ CMake 是一种跨平台工具，用来自动化构建、测试和打包软件�
 
 有两种 build 方式，一种是 *in-source*，Source Tree 和 Build Tree 为同一目录，但是不建议使用 in-source 构建；另一种是 *out-of-source*，Source Tree 和 Build Tree 为不同目录，进行构建更加方便。
 
-**Generator**：选择要生成 buildsystem 的种类。目前(v3.16)可以选择的 Generator 见 [cmake generator](https://cmake.org/cmake/help/v3.16/manual/cmake-generators.7.html#manual:cmake-generators(7))。可以使用 `-G` 选项来指定生成器，或者让 CMake 为当前平台选择默认的生成器。
+**Generator**：选择要生成 buildsystem 的种类。目前(v3.16)可以选择的 Generator 见 [cmake generator](https://cmake.org/cmake/help/v3.16/manual/cmake-generators.7.html#manual:cmake-generators(7))。可以使用 `-G` 选项来指定生成器，或者让 CMake 为当前平台选择默认的生成器。比如 `-G Unix Makefiles`，`Visual Studio 16 2019`，`Ninja` 等。
 
 
 
@@ -39,6 +39,18 @@ cmake -S src -B build
 -G <genor>              # Specify a build system generator
 -T <toolset>            # Toolset specification for the generator, if supported
 -A <platform>           # Specify platform name if supported by generator
+```
+
+
+
+**运行构建系统**
+
+可以使用构建系统的原生方法进行构建，比如 Makefile 使用 `make` 命令，Visual Studio 解决方案使用 Visual Studio 进行生成等等。
+
+还可以直接使用 CMake 命令进行构建
+
+```sh
+cmake --build <build_dir> [--config Debug|Release|...] [--target target] ...
 ```
 
 
@@ -139,7 +151,7 @@ project(<PROJECT-NAME>
         [LANGUAGES <language-name>...])
 ```
 
-设置项目的名称，并将其存储到 `PROJECT_NAME` 命令中，从顶层 `CMakeLists.txt` 调用时，还会将项目名称存储到 `CMAKE_PROJECT_NAME` 中。
+设置项目的名称，名称只能使由字母、数字、下划线、连字符(`-`) 构成，，并将其存储到 `PROJECT_NAME` 命令中，从顶层 `CMakeLists.txt` 调用时，还会将项目名称存储到 `CMAKE_PROJECT_NAME` 中。
 
 还会设置以下的变量：
 
@@ -172,6 +184,70 @@ project(<PROJECT-NAME>
 
 
 
+例子：
+
+```cmake
+project(MyProject VERSION 1.0.0)
+project(MyProject VERSION "1.0.0")
+project(MyProject VERSION 1.0.0 LANGUAGES CXX)
+project(MyProject VERSION 1.0.0 LANGUAGES C CXX ASM)
+```
+
+
+
+## 3. add_executable
+
+使用指定的源代码添加 executable target
+
+ ```cmake
+ add_executable(<name> [WIN32] [MACOSX_BUNDLE]
+                [EXCLUDE_FROM_ALL]
+                [source1] [source2 ...])
+ ```
+
+`WIN32` 选项表示将构建 Win32 GUI 应用程序，程序入口为 `WinMain()`，而且增加链接选项 `/SUBSYSTEM:WINDOWS`，其他平台会自动忽略 `WIN32` 选项
+
+`MACOSX_BUNDLE`，个人对 macOS 不了解，有需要可以自己查看 [MACOSX_BUNDLE](https://cmake.org/cmake/help/v3.16/prop_tgt/MACOSX_BUNDLE.html#prop_tgt:MACOSX_BUNDLE) 文档
+
+`EXCLUDE_FROM_ALL`，项目定义了许多 targets，当没有指定 target 就对项目进行构建时，会对 `ALL` 这个特殊的 target 进行构建，比如在生成的 Visual Studio 解决方案可以看到一个 `ALL_BUILD` 的项目。使用 `add_executable` 指定的 target 默认在 `ALL` target 中。
+
+sources 可以指定该 target 需要的源代码文件，如果是 C/C++ 项目，除了 C/C++ 源码(`.c, .cpp, .cc` 等)，建议把所需本项目的头文件也添加进去，虽然对构建没有影响，添加头文件可以在 Visual Studio 的工程中更方便的找到头文件
+
+例子：
+
+```cmake
+add_executable(hello hello.c)
+add_executable(foo EXCLUDE_FROM_ALL foo.h foo.c main.c)
+```
+
+
+
+## 4. add_library
+
+使用指定的源代码添加 library target
+
+```cmake
+add_library(<name> [STATIC | SHARED | MODULE]
+            [EXCLUDE_FROM_ALL]
+            [<source>...])
+```
+
+`STATIC` 指定构建为静态库。在 Windows 上生成 `name.lib`，Unix 上生成 `libname.a`
+
+`SHARED` 指定构建为动态库。在 Windows 上生成 `name.dll`，macOS 上为 `libname.dylib`，其他 Unix 上一般为 `libname.so`
+
+`MODULE` 指定构建为模块(module)。类似于动态库，不同的是 module 只是作为插件不会被其他 targets 链接进去，只会在运行时使用类似于 `dlopen` 的方法动态加载模块。
+
+如果没有显式注明构建库类型，会使用 `BUILD_SHARED_LIBS` 变量决定构建类型。如果 `BUILD_SHARED_LIBS` 设置为 `true`，将会构建动态库；否则，构建静态库（默认）。
+
+```sh
+cmake -DBUILD_SHARED_LIBS=true source
+```
+
+
+
+
+
 # 四、高级命令
 
 
@@ -193,7 +269,3 @@ https://cliutils.gitlab.io/modern-cmake/
 
 
 ## 2. CMake 变量
-
-`PROJECT_NAME`:
-
-`CMAKE_PROJECT_NAME`:
