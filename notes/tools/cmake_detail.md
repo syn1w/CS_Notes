@@ -246,6 +246,42 @@ cmake -DBUILD_SHARED_LIBS=true source
 
 
 
+一些好的习惯：
+
+- 命名库时，尽量不要以 `lib` 作为库的开头，因为在大部分非 Windows 平台，构建库会自动添加 `lib` 前缀，如果以 `lib` 开头，则生成的库以 `liblibxxx.xx` 命名。
+- 除非有硬性需求，可以避免使用指定 `STATIC` 或 `SHARED`，在构建时，通过 `BUILD_SHARED_LIBS` 变量来选择构建静态库还是动态库。
+
+
+
+## 5. target_link_libraries
+
+为给定的 target 指定其需要链接的依赖库
+
+```cmake
+target_link_libraries(<target> <PRIVATE|PUBLIC|INTERFACE> items1...
+                               [<PRIVATE|PUBLIC|INTERFACE> items2...]...)
+```
+
+关于库依赖传递可以见 [transitive-usage-requirements](https://cmake.org/cmake/help/v3.16/manual/cmake-buildsystem.7.html#transitive-usage-requirements)
+
+`PRIVATE`：在 `PRIVATE` 之后的库和目标被链接到 target，但是不会成为 target 链接接口的一部分。如果依赖项仅使用库的实现，即 target 的源文件需要依赖 A 库，而 target 的头文件不需要依赖 A 库，通常会采用 `PRIVATE A`。
+
+`PUBLIC`：在 `PUBLIC` 之后的库和目标会被链接到 target，而且会成为 target 链接接口的一部分。如果 target 的头文件依赖了 A 库(比如继承 A 库的类)，则应该将其指定为 `PUBLIC A`。
+
+`INTERFACE`：如果库的实现不使用库而仅头文件使用依赖项应该指定为 `INTERFACE`，即 target 的头文件包含了 A 库的头文件，但是 target 的源文件没有使用 A 库，可以使用 `INTERFACE A`。
+
+如果不显式注明链接类型(`PRIVATE|PUBLIC|INTERFACE`)，写成 `target_link_libraries(<target> <item>...)` 这样的形式，默认一般是可传递的(`PUBLIC`)，如果和新式链接形式混合使用，则一般是 `PRIVATE`，而且还有其他复杂的情况，具体见[这里](https://cmake.org/cmake/help/v3.16/command/target_link_libraries.html#id4)。在新项目中尽量显式注明链接类型。
+
+
+
+items 一般为库名，CMake 可以是以下内容：
+
+- CMake target name，将包含与目标关联的可链接库文件的完整路径。如果库文件更改，构建系统将依赖于重新链接。
+- 库完整的路径，通常会保留库的完整路径，如果库文件修改，构建系统则会重新进行链接。
+- 非 CMake target name，将要求链接器搜索库。比如 `-lpthread`
+- link flag，以 `-` 开始，但是不能是 `-l` 或 `-framework`，link flags 指定链接标志插入到链接库命令中，具体依赖于链接器（不同的链接器 flags 不一样）。也可以使用 `LINK_OPTIONS` 目标属性或 `target_link_options()` 命令显式添加链接标志。比如在 Unix 上，静态库的依赖顺序可能会造成链接错误，可以使用 `-Wl,--start-group lib1 lib2 ... -Wl,--end-group` 来解决静态库的依赖顺序导致的链接错误。
+- 生成器表达式(generator expression)，`$<...>` 生成器表达式可以计算为上述任何项或以分号分隔的列表，比如 `${libs}` 等等，生成器表达式之后详细讨论。
+
 
 
 # 四、高级命令
