@@ -59,7 +59,7 @@ cmake --build <build_dir> [--config Debug|Release|...] [--target target] ...
 
 基于 CMake 的构建系统被构建为一系列高级逻辑目标(targets)，每个 target 对应一个可执行文件或库，或者是包含自定义 commands 的自定义 target。在两个 targets 之间的依赖决定了构建顺序和修改之后重新生成的规则。
 
-### **(1) 二进制 targets**
+### (1) targets
 
 可执行程序和库使用 [`add_executable()`](https://cmake.org/cmake/help/v3.16/command/add_executable.html#command:add_executable) 和 [`add_library()`](https://cmake.org/cmake/help/v3.16/command/add_library.html#command:add_library)  命令。生成的二进制文件在目标平台具有合适的[`PREFIX`](https://cmake.org/cmake/help/v3.16/prop_tgt/PREFIX.html#prop_tgt:PREFIX), [`SUFFIX`](https://cmake.org/cmake/help/v3.16/prop_tgt/SUFFIX.html#prop_tgt:SUFFIX) and extensions。二进制之间的依赖使用 [`target_link_libraries()`](https://cmake.org/cmake/help/v3.16/command/target_link_libraries.html#command:target_link_libraries) 命令。
 
@@ -507,6 +507,131 @@ CMake 命令行工具可以使用 `cmake -Dvar:type=value` 的方式来设置缓
 CMake GUI 可以点击 "Add Entry" 或 "Remove Entry" 添加或移除缓存变量。
 
 <br>
+
+
+
+## 2. operations
+
+前面介绍了变量，CMake 变量本质都是字符串，有些操作会字符串解释为其他类型。我们这一节主要介绍对变量值(字符串)的操作。
+
+### (1) string
+
+CMake 有 `string` 操作，提供了对字符串的处理功能。主要功能有查找和替换、正则表达式、操纵（附加、大小写转换、获取长度、字串等）、比较、计算哈希、生成（比如生成随机字符串、时间戳、UUID 等）。在 3.19 版本新增了 JSON 相关操作。
+
+**查找**
+
+```cmake
+string(FIND <string> <substring> <output_variable> [REVERSE])
+```
+
+查找操作的第一个参数 `<string>` 为输入字符串，第二个参数 `substring` 为期待查找的子串，`output_variable` 为查找结果被存储到输出变量中。处理所有的字符为 ASCII 值，所以输出的索引以字节为单位计算。如果找到子串，则输出 `string` 中首个匹配字串的位置，从 0 开始；否则输出 `-1`。`[REVERSE]` 表示从后往前查找。
+
+例如：
+
+```cmake
+set(s1 "This is a string")
+set(s2 "is")
+string(FIND ${s1} ${s2} pos1)            # pos1 = "2"
+string(FIND ${s1} ${s2} pos2 REVERSE)    # pos2 = "5"
+string(FIND ${s1} "this" pos3)           # pos3 = "-1"
+```
+
+
+
+**替换**
+
+```cmake
+string(REPLACE <match_string> <replace_string>
+       <output_variable> <input> [<input>...])
+```
+
+用 `replace_string` 把在 `input` 中的所有匹配到 `match_string` 字符串替换到，替换的结果存储到 `output_variable`。当然替换操作不会修改原字符串
+
+当给定多个 `input` 时，首先将所有的 `input` 连接起来（类似于 std::string 的 append 操作），两个字符串之间没有任何分隔符。
+
+例如：
+
+```cmake
+set(s1 "abcd")
+string(REPLACE "bc" "yz" out1 s1)        # out1 = "ayzd"
+string(REPLACE "da" "wx" out2 s1 s1 s1)  # out2 = "abcwxbcwxbcd"
+```
+
+
+
+**正则表达式**
+
+```cmake
+string(REGEX MATCH <regular_expression> <output_variable> <input> [<input>...])
+string(REGEX MATCHALL <regular_expression> <output_variable> <input> [<input>...])
+string(REGEX REPLACE <regular_expression> <replacement_expression>
+       <output_variable> <input> [<input>...])
+```
+
+`<input>` 和 `string(REPLACE ...)` 的处理方式相同
+
+`MATCH` 正则表达式匹配一次，将匹配到的结果字符串写到 `output_variable`
+
+`MATCH_ALL` 正则表达式匹配多次，将可能匹配到的结果字符串作为 `list` 写入到 `output_variable`
+
+`REPLACE`  正则表达式匹配多次，使用 `replacement_expression` 将所有可能匹配到的字符串替换
+
+CMake 3.16 支持的正则表达式语法见[这里](https://cmake.org/cmake/help/v3.16/command/string.html#regex-specification)
+
+
+
+**操纵字符串**
+
+```cmake
+string(APPEND <string_variable> [<input>...])
+string(PREPEND <string_variable> [<input>...])
+
+string(CONCAT <output_variable> [<input>...])
+string(JOIN <glue> <output_variable> [<input>...])
+string(TOLOWER <string> <output_variable>)
+string(TOUPPER <string> <output_variable>)
+string(LENGTH <string> <output_variable>)
+string(SUBSTRING <string> <begin> <length> <output_variable>)
+string(STRIP <string> <output_variable>)
+string(REPEAT <string> <count> <output_variable>)
+```
+
+`APPEND` 修改 `string_variable>`，在其后 append 所有的 `input`，`PREPEND` 和 `APPEND` 类似，不过插入到其开始位置，而不是末尾。
+
+`CONCAT` 连接操作。`JOIN` 使用 `glue` 将字符串拼接起来，比如 `glue` 是 `, `，所有的 `input` 是 `"abc" "123" "def"`，则结果是 `abc, 123, def`
+
+`TOLOWER` 和  `TOUPPER` 将 `string` 分别转换为小写和大写，`LENGTH` 计算字符串长度，`SUBSTRING` 是输出 `string` 的子字符串到 `output_variable`
+
+`STRIP` 将删除了前导空格和末尾空格的 `string` 存储到 `output_variable`
+
+`REPEAT` 生成 `string` 重复 `count` 次的结果写入 `output_variable`
+
+
+
+**比较操作**
+
+```cmake
+string(COMPARE LESS <string1> <string2> <output_variable>)
+string(COMPARE GREATER <string1> <string2> <output_variable>)
+string(COMPARE EQUAL <string1> <string2> <output_variable>)
+string(COMPARE NOTEQUAL <string1> <string2> <output_variable>)
+string(COMPARE LESS_EQUAL <string1> <string2> <output_variable>)
+string(COMPARE GREATER_EQUAL <string1> <string2> <output_variable>)
+```
+
+将比较的结果 `true` 或 `false` 写入到 `output_variable`
+
+
+
+**哈希操作**
+
+```cmake
+string(<HASH> <output_variable> <input>)
+```
+
+可选的 `HASH` 有：`MD5, SHA1, SHA224, SHA256, SHA384, SHA512, SHA3_224, SHA3_256, SHA3_384, SHA3_512`
+
+
 
 
 
