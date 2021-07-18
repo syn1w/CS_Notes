@@ -635,6 +635,80 @@ string(<HASH> <output_variable> <input>)
 
 
 
+### (2) list
+
+CMake 中的列表(list)是一个用 `;` 隔开的单个字符串，CMake 提供了 `list` 命令对列表字符串进行操作。
+
+**读取列表**
+
+```cmake
+list(LENGTH <list> <out-var>)
+list(GET <list> <element index> [<index> ...] <out-var>)
+list(JOIN <list> <glue> <out-var>)
+list(SUBLIST <list> <begin> <length> <out-var>)
+```
+
+`list` 参数需要直接写变量名，例如：
+
+```cmake
+set(l1 1 2 3 4 5)
+list(LENGTH l1 len)
+```
+
+读取列表和 `string` 一些操作相似，这里需要对 `list` 下标进行说明，如果说 `index` 大于等于 0，则从列表的开头进行索引；如果 `index` 小于等于 -1，则从列表的结尾进行索引，类似于 Python。如果下标越界，CMake 会报告 error
+
+**列表查找**
+
+```cmake
+list(FIND <list> <value> <out-var>)
+```
+
+如果在 `list` 中找到 `value`，则返回找到的下标；否则返回 `-1`
+
+**修改列表操作**
+
+```cmake
+list(APPEND <list> [<element>...])
+list(FILTER <list> {INCLUDE | EXCLUDE} REGEX <regex>)
+list(INSERT <list> <index> [<element>...])
+list(POP_BACK <list> [<out-var>...])
+list(POP_FRONT <list> [<out-var>...])
+list(PREPEND <list> [<element>...])
+list(REMOVE_ITEM <list> <value>...)
+list(REMOVE_AT <list> <index>...)
+list(REMOVE_DUPLICATES <list>)
+list(TRANSFORM <list> <ACTION> [...])
+list(REVERSE <list>)
+list(SORT <list> [COMPARE <compare>] [CASE <case>] [ORDER <order>])
+```
+
+这些操作都会修改列表的内容，CMake 可以在当前作用域创建一个新的变量，类似于使用 `set(list ...)` 命令，在当前作用域创建一个新的变量值，即便这个变量是父作用域定义的。如果想要将修改传播到父作用域，可以使用 `set(list ... PARENT_SCOPE)` 。也可以使用 `CACHE INTERNAL` 或其他的类似的值传播方式。
+
+
+
+### (3) math
+
+```cmake
+math(EXPR <variable> "<expression>" [OUTPUT_FORMAT <format>])
+```
+
+CMake 还可以对数学表达式进行计算，表达式的结果必须可以表示为 64-bit 有符号整型。
+
+支持整型的 `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`,`()` 操作，其意义和 C 语言一样。
+
+可选的 `format` 参数：十六进制 `HEXADECIMAL`  和十进制 `DECIMAL`
+
+
+
+例如：
+
+```cmake
+math(EXPR value "100 * 0xA" OUTPUT_FORMAT DECIMAL)      # value is set to "1000"
+math(EXPR value "100 * 0xA" OUTPUT_FORMAT HEXADECIMAL)  # value is set to "0x3e8"
+```
+
+
+
 # 五、高级主题
 
 
