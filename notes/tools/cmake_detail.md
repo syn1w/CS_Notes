@@ -709,6 +709,113 @@ math(EXPR value "100 * 0xA" OUTPUT_FORMAT HEXADECIMAL)  # value is set to "0x3e8
 
 
 
+## 3. if
+
+和其他脚本语言类似，CMake 也提供了 `if` 语句，一般形式为：
+
+```cmake
+if(<condition>)     # expr1
+  <commands>
+elseif(<condition>) # expr2, optional block, can be repeated
+  <commands>
+else()              # optional block
+  <commands>
+endif()
+```
+
+`elseif` 和 `else` 标签是可选的，在 CMake 2.8 版本之前，CMake 要求 `else` 和 `endif` 的参数为 `expr1`，之后的版本不再需要。
+
+新项目尽量保留 `else` 和 `endif` 的参数为空。
+
+
+
+`condition` 表达式为下列，官方文档可以见[这里](https://cmake.org/cmake/help/v3.16/command/if.html#condition-syntax)：
+
+- `constant`，值为 `1, ON, YES, TRUE, Y` 或非 0 的数值则视为 `TRUE`；值为 `0, OFF, NO, FALSE, N, IGNORE, NOTFOUND, ...-NOTFOUND` 或空字符串则视为 `FALSE`。不区分大小写。比如 `if(TRUE), if(FALSE), if("")`
+
+- `variable`（变量名），如果变量值**不是** false `constant`，则为 `TRUE`，否则是 `FALSE`。
+
+- `string`（带引号的字符串），如果字符串**是** true `constant`，则为 `TRUE`，否则是 `FALSE`。注：该条和文档略有出入，经过实际测试确实和官方文档描述有出入，之后需确认详细原因。
+
+- 逻辑操作符，CMake 支持 `NOT <cond>`，`<cond1> AND <cond2>` 和 `<cond1> OR <cond2>`
+
+- 文件系统相关，以下除了 `IS_ABSOLUTE` 其他的参数需要是绝对路径，行为才是 well-defined
+
+  |             condition              |                             说明                             |
+  | :--------------------------------: | :----------------------------------------------------------: |
+  | `EXISTS path-to-file-or-directory` | 判断 `path-to-file-or-directory` 指定的文件或目录是否存在。 会解析符号链接，如果指定的文件是符号链接且目标存在，则为 true |
+  |    `file1 IS_NEWER_THAN file2`     | 如果 `file1` 比 `file2` 更新或其中之一不存在或时间完全相同为 true，否则为 false |
+  |  `IS_DIRECTORY path-to-directory`  |                     如果是目录则为 true                      |
+  |       `IS_SYMLINK file-name`       |                   如果是符号链接则为 true                    |
+  |         `IS_ABSOLUTE path`         |                   如果是绝对路径则为 true                    |
+
+- 其他一元谓词。`op expr`，`op` 如下表所示：
+
+  |                 condition                  |                             说明                             |
+  | :----------------------------------------: | :----------------------------------------------------------: |
+  |           `COMMAND command-name`           | 如果 `command-name` 是 command、macro、function 这些可调用的则为 true |
+  |             `POLICY policy-id`             | 如果 `policy-id` 是一个存在的 policy(具体之后进行说明，`CMP<NNNN>`)，则为 true |
+  |            `TARGET target-name`            | 如果 `target-name` 是通过 `add_executable, add_library, add_custom_target` 添加的 target，则为 true |
+  |              `TEST test-name`              |      如果 `test-name` 是通过 `add_test` 创建的则为 true      |
+  | `DEFINED <name>|CACHE{<name>}|ENV{<name>}` | 如果以 `name` 命名的变量、缓存变量或环境变量存在的话，则为 true |
+
+- 二元比较谓词。`<variable|string> op <variable|string>`，`op` 如下表所示：
+
+    |     Number      |       String       |         Version         |
+    | :-------------: | :----------------: | :---------------------: |
+    |     `LESS`      |     `STRLESS`      |     `VERSION_LESS`      |
+    |    `GREATER`    |    `STRGREATER`    |    `VERSION_GREATER`    |
+    |     `EQUAL`     |     `STREQUAL`     |     `VERSION_EQUAL`     |
+    |  `LESS_EQUAL`   |  `STRLESS_EQUAL`   |  `VERSION_LESS_EQUAL`   |
+    | `GREATER_EQUAL` | `STRGREATER_EQUAL` | `VERSION_GREATER_EQUAL` |
+
+    如果使用数值类似比较，如果给定的值都可以表示为有效的数值类型并且左边小于右边的数值，则为 true。如果使用字符串类型进行比较，按照字典序进行比较。如果是版本，按照 `major[.minor[.patch[.tweak]]]` 的表示进行比较。`LESS_EQUAL` 和 `GREATER_EQUAL` 仅适用于 CMake 3.7 之后的版本。
+
+- 其他二元谓词。
+
+    - `if(<variable|string> MATCHES regex) ` 如果给定的变量或字符串匹配给定的正则表达式，则为 true。
+    - `if(<variable|string> IN_LIST <variable>)` 如果给定的元素被给定的列表包含则为 true。
+
+- 括号表达式。和其他语言表达式中的括号意义一样。
+
+例子：
+
+```cmake
+if (1)              # true
+if("1")             # true
+if ("ON")           # true
+
+set(foo abc)
+if (foo)            # true
+if (bar)            # bar = "", false
+
+if ("abc")          # false
+if ("FALSE")        # false
+
+if(WIN32)
+  # Windows
+elseif(APPLE)
+  # Apple
+elseif(UNIX)
+  # Other UNIX
+else()
+  # Other...
+endif()
+
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(STATUS "Linux")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    message(STATUS "Windows")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    message(STATUS "macOS")
+endif()
+```
+
+CMake 支持描述系统或平台的变量见[这里](https://cmake.org/cmake/help/latest/manual/cmake-variables.7.html#variables-that-describe-the-system)
+
+
+
 # 五、高级主题
 
 
