@@ -506,8 +506,6 @@ CMake 命令行工具可以使用 `cmake -Dvar:type=value` 的方式来设置缓
 
 CMake GUI 可以点击 "Add Entry" 或 "Remove Entry" 添加或移除缓存变量。
 
-<br>
-
 
 
 ## 2. operations
@@ -633,8 +631,6 @@ string(<HASH> <output_variable> <input>)
 
 
 
-
-
 ### (2) list
 
 CMake 中的列表(list)是一个用 `;` 隔开的单个字符串，CMake 提供了 `list` 命令对列表字符串进行操作。
@@ -683,7 +679,6 @@ list(SORT <list> [COMPARE <compare>] [CASE <case>] [ORDER <order>])
 ```
 
 这些操作都会修改列表的内容，CMake 可以在当前作用域创建一个新的变量，类似于使用 `set(list ...)` 命令，在当前作用域创建一个新的变量值，即便这个变量是父作用域定义的。如果想要将修改传播到父作用域，可以使用 `set(list ... PARENT_SCOPE)` 。也可以使用 `CACHE INTERNAL` 或其他的类似的值传播方式。
-
 
 
 ### (3) math
@@ -813,6 +808,53 @@ endif()
 ```
 
 CMake 支持描述系统或平台的变量见[这里](https://cmake.org/cmake/help/latest/manual/cmake-variables.7.html#variables-that-describe-the-system)
+
+
+
+## 4. loop
+
+### (1) foreach
+
+常规形式：
+
+```cmake
+foreach(<loop_var> <items>)
+  <commands>
+endforeach()
+```
+
+`items` 是由分号或空格分割列表，在 `foreach` 和 `endforeach` 之间的 `commands` 在 `endforeach` 被执行，就对列表中的每个项调用一次。每次迭代开始，`loop_var` 被设置为当前项。`break()` 和 `continue()` 和其他语言中的意义一样，可以打破 `foreach` 正常的控制流。
+
+在 CMake 2.8 之前，`endforeach()` 参数允许填写可选参数 `loop_var`，在新项目中不建议使用。
+
+`foreach` 其他形式：
+
+```cmake
+# foreach start, start + step, start + 2step, ..., <= stop
+foreach(<loop_var> RANGE <start> <stop> [<step>])
+# foreach 0, 0+1, 0+2, ..., stop
+foreach(<loop_var> RANGE <stop>)
+# foreach item in lists and items
+foreach(loop_var IN [LISTS [<lists>]] [ITEMS [<items>]])
+```
+
+`RANGE` 可以对数值的迭代，`IN` 可以混合 `lists` 和 `items` 进行迭代
+
+
+
+### (2) while
+
+```cmake
+while(<condition>)
+  <commands>
+endwhile()
+```
+
+和 `foreach` 类似，如果 `condition` 为 true，将 `commands` 进行记录，重复此操作，直到 `condition` 为 false。当 `endwhile()` 被执行，被记录的 `commands` 就会被执行。`condition` 和 `if` 中的是相同的。
+
+在 CMake 2.8 之前，`endwhile()` 参数允许填写可选参数 `condition`，在新项目中不建议使用。
+
+
 
 
 
